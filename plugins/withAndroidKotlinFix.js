@@ -8,16 +8,11 @@ const withAndroidKotlinFix = (config) => {
       const fixSnippet = `
 allprojects {
     tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-        kotlinOptions {
-            freeCompilerArgs += [
+        compilerOptions {
+            freeCompilerArgs.addAll(
                 "-Xskip-metadata-version-check",
                 "-Xskip-prerelease-check"
-            ]
-        }
-    }
-    configurations.all {
-        resolutionStrategy {
-            force 'com.google.android.gms:play-services-ads:23.6.0'
+            )
         }
     }
 }
