@@ -1,0 +1,96 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.email == 'admin@rupeo.app';
+    }
+
+    // App Global Config (Realtime Master Toggles: maintenanceMode, showAds, showProFeatures)
+    match /app_config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Coupons Collection
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    function validAudience() {
+      return request.resource.data.audience == 'all'
+        || request.resource.data.audience == 'all users'
+        || request.resource.data.audience.matches('user:[A-Za-z0-9_-]+')
+        || request.resource.data.audience.matches('specific:[A-Za-z0-9_-]+')
+        || request.resource.data.audience.matches('group:[A-Za-z0-9_-]+')
+        || request.resource.data.audience.matches('[A-Za-z0-9_-]+');
+    }
+
+    match /admin_notifications/{notificationId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.active == true);
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'title', 'message', 'audience', 'active', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.message is string
+        && request.resource.data.audience is string
+        && validAudience()
+        && request.resource.data.active is bool;
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'title', 'message', 'audience', 'active', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.message is string
+        && request.resource.data.audience is string
+        && validAudience()
+        && request.resource.data.active is bool;
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+      allow read: if isAdmin();
+
+      match /transactions/{transactionId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+        allow read: if isAdmin();
+      }
+
+      match /notifications/{notificationId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /devices/{deviceId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /settings/{settingsId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /categories/{categoryId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /recurring_bills/{billId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /{document=**} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /ads/{adId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

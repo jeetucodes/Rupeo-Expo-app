@@ -1,0 +1,55 @@
+import React, { useEffect, useRef } from 'react';
+import { Animated, ViewStyle, StyleProp } from 'react-native';
+
+interface SkeletonProps {
+  width?: number | string;
+  height?: number | string;
+  borderRadius?: number;
+  style?: StyleProp<ViewStyle>;
+  color?: string;
+}
+
+export default function Skeleton({
+  width = '100%',
+  height = 20,
+  borderRadius = 8,
+  style,
+  color = '#E2E8F0', // Default tailwind slate-200
+}: SkeletonProps) {
+  const opacityAnim = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacityAnim, {
+          toValue: 0.7,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+
+    return () => pulse.stop();
+  }, [opacityAnim]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: width as any,
+          height: height as any,
+          borderRadius,
+          backgroundColor: color,
+          opacity: opacityAnim,
+        },
+        style,
+      ]}
+    />
+  );
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "26927139619",
+    "project_id": "paisewaise-e545e",
+    "storage_bucket": "paisewaise-e545e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:26927139619:android:e0cace3a90101a2b02da96",
+        "android_client_info": {
+          "package_name": "com.innovatexlabs.paisewaise"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAy0P_i2ywT_jpF_leDU-oo3juR1Pu9VJE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
