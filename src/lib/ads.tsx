@@ -1,20 +1,16 @@
+import React from 'react';
 import { Platform } from 'react-native';
 import * as webAds from './ads.web';
+import * as nativeAds from './ads.native';
 
-let nativeAds: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    // Dynamically require native module on iOS and Android
-    nativeAds = require('./ads.native');
-  } catch (e) {
-    console.warn('Could not load native ads module:', e);
+export const ADMOB_CONFIG = Platform.OS === 'web' ? webAds.ADMOB_CONFIG : nativeAds.ADMOB_CONFIG;
+export const initializeAds = Platform.OS === 'web' ? webAds.initializeAds : nativeAds.initializeAds;
+export const preloadTransactionSaveAd = Platform.OS === 'web' ? webAds.preloadTransactionSaveAd : nativeAds.preloadTransactionSaveAd;
+export const showTransactionSaveAd = Platform.OS === 'web' ? webAds.showTransactionSaveAd : nativeAds.showTransactionSaveAd;
+
+export function HomeBannerAd(props: { style?: any }) {
+  if (Platform.OS === 'web') {
+    return null;
   }
+  return <nativeAds.HomeBannerAd {...props} />;
 }
-
-const activeAds = (Platform.OS !== 'web' && nativeAds) ? nativeAds : webAds;
-
-export const ADMOB_CONFIG: typeof webAds.ADMOB_CONFIG = activeAds.ADMOB_CONFIG;
-export const initializeAds: typeof webAds.initializeAds = activeAds.initializeAds;
-export const preloadTransactionSaveAd: typeof webAds.preloadTransactionSaveAd = activeAds.preloadTransactionSaveAd;
-export const showTransactionSaveAd: typeof webAds.showTransactionSaveAd = activeAds.showTransactionSaveAd;
-export const HomeBannerAd: typeof webAds.HomeBannerAd = activeAds.HomeBannerAd;

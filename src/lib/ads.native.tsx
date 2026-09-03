@@ -105,8 +105,9 @@ export function HomeBannerAd({ style }: { style?: any }) {
   const [adError, setAdError] = useState(false);
   const [useTestAd, setUseTestAd] = useState(__DEV__);
 
-  // If user is premium or Admin disabled ads, never render ads!
-  if (isPremium || appConfig?.showAds === false) return null;
+  // In production (!__DEV__), Premium users get 100% Zero Ads.
+  // In development (__DEV__), allow displaying the ad so the developer can test and verify it!
+  if (!__DEV__ && (isPremium || appConfig?.showAds === false)) return null;
 
   // 1. If compiled Android APK with native AdMob SDK:
   if (BannerAd && BannerAdSize) {
