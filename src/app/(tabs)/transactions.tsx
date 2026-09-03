@@ -660,18 +660,12 @@ export default function TransactionsScreen() {
           />
         }
       >
-        {/* Cashflow Inflow / Outflow & Net Savings Grid */}
-        <View style={styles.cashflowContainer}>
-          {/* INFLOW TILE */}
-          <View style={[styles.cashflowTile, styles.inflowTile]}>
-            <View style={styles.cashflowTileHeader}>
-              <View style={[styles.cashflowIconBadge, { backgroundColor: '#DCFCE7' }]}>
-                <Ionicons name="arrow-down" size={12} color="#15803D" />
-              </View>
-              <Text style={[styles.cashflowTileLabel, { color: '#15803D' }]}>INFLOW</Text>
-            </View>
+        {/* Simple Minimal Cashflow Summary Card */}
+        <View style={styles.cashflowSimpleCard}>
+          <View style={styles.cashflowSimpleCol}>
+            <Text style={styles.cashflowSimpleLabel}>Inflow</Text>
             <Text
-              style={[styles.cashflowTileValue, { color: '#16A34A' }]}
+              style={[styles.cashflowSimpleValue, { color: '#16A34A' }]}
               numberOfLines={1}
               adjustsFontSizeToFit
             >
@@ -679,16 +673,12 @@ export default function TransactionsScreen() {
             </Text>
           </View>
 
-          {/* OUTFLOW TILE */}
-          <View style={[styles.cashflowTile, styles.outflowTile]}>
-            <View style={styles.cashflowTileHeader}>
-              <View style={[styles.cashflowIconBadge, { backgroundColor: '#FEE2E2' }]}>
-                <Ionicons name="arrow-up" size={12} color="#DC2626" />
-              </View>
-              <Text style={[styles.cashflowTileLabel, { color: '#B91C1C' }]}>OUTFLOW</Text>
-            </View>
+          <View style={styles.cashflowSimpleDivider} />
+
+          <View style={styles.cashflowSimpleCol}>
+            <Text style={styles.cashflowSimpleLabel}>Outflow</Text>
             <Text
-              style={[styles.cashflowTileValue, { color: '#DC2626' }]}
+              style={[styles.cashflowSimpleValue, { color: '#DC2626' }]}
               numberOfLines={1}
               adjustsFontSizeToFit
             >
@@ -696,37 +686,21 @@ export default function TransactionsScreen() {
             </Text>
           </View>
 
-          {/* NET TILE */}
-          {(() => {
-            const netVal = totalInflow - totalOutflow;
-            const isPositive = netVal >= 0;
-            const netColor = isPositive ? '#2563EB' : '#D97706';
-            const netBg = isPositive ? '#EFF6FF' : '#FFFBEB';
-            const netBorder = isPositive ? '#DBEAFE' : '#FEF3C7';
-            const netBadgeBg = isPositive ? '#DBEAFE' : '#FDE68A';
+          <View style={styles.cashflowSimpleDivider} />
 
-            return (
-              <View style={[styles.cashflowTile, { backgroundColor: netBg, borderColor: netBorder }]}>
-                <View style={styles.cashflowTileHeader}>
-                  <View style={[styles.cashflowIconBadge, { backgroundColor: netBadgeBg }]}>
-                    <Ionicons
-                      name={isPositive ? 'wallet-outline' : 'scale-outline'}
-                      size={12}
-                      color={netColor}
-                    />
-                  </View>
-                  <Text style={[styles.cashflowTileLabel, { color: netColor }]}>NET</Text>
-                </View>
-                <Text
-                  style={[styles.cashflowTileValue, { color: netColor }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {isPositive ? '+' : '-'}{curr}{formatCashflow(Math.abs(netVal))}
-                </Text>
-              </View>
-            );
-          })()}
+          <View style={styles.cashflowSimpleCol}>
+            <Text style={styles.cashflowSimpleLabel}>Net</Text>
+            <Text
+              style={[
+                styles.cashflowSimpleValue,
+                { color: (totalInflow - totalOutflow) >= 0 ? '#0F172A' : '#DC2626' },
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {(totalInflow - totalOutflow) >= 0 ? '+' : '-'}{curr}{formatCashflow(Math.abs(totalInflow - totalOutflow))}
+            </Text>
+          </View>
         </View>
 
         {/* Search Bar */}
@@ -1212,56 +1186,43 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
-  cashflowContainer: {
+  cashflowSimpleCard: {
     flexDirection: 'row',
-    marginHorizontal: 16,
-    gap: 10,
-    marginBottom: 16,
-  },
-  cashflowTile: {
-    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 20,
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
     shadowColor: '#000',
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.02,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
     elevation: 1,
-    justifyContent: 'space-between',
+    marginBottom: 14,
   },
-  inflowTile: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#DCFCE7',
-  },
-  outflowTile: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FEE2E2',
-  },
-  cashflowTileHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
-  },
-  cashflowIconBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
+  cashflowSimpleCol: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cashflowTileLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+  cashflowSimpleLabel: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748B',
+    marginBottom: 4,
   },
-  cashflowTileValue: {
+  cashflowSimpleValue: {
     fontSize: 15.5,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: -0.3,
+  },
+  cashflowSimpleDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: '#F1F5F9',
   },
   searchBarWrap: {
     flexDirection: 'row',
