@@ -524,15 +524,10 @@ export default function DashboardScreen() {
       // Trigger automatic 3-day reminder checks & budget alerts
       checkBillReminders(user.uid).catch(() => {});
 
-      // Ensure welcome notification & 3-hour smart nudges are scheduled
-      import('@/lib/notifications').then(({ sendWelcomeNotification, setupPeriodicSmartNotifications, sendBudgetAlert }) => {
+      // Ensure welcome notification & daily routine reminders are scheduled
+      import('@/lib/notifications').then(({ sendWelcomeNotification, setupPeriodicSmartNotifications }) => {
         sendWelcomeNotification(user.uid).catch(() => {});
         setupPeriodicSmartNotifications().catch(() => {});
-
-        const monthlyBudget = Number(settings?.monthlyBudget) || 0;
-        if (monthlyBudget > 0 && curMonthS > monthlyBudget) {
-          sendBudgetAlert(Math.round(curMonthS - monthlyBudget), curr, curMonthS, monthlyBudget, undefined, user.uid).catch(() => {});
-        }
       }).catch(() => {});
     } catch (err) {
       console.error('Failed to load dashboard data', err);

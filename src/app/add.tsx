@@ -358,19 +358,6 @@ export default function AddExpenseScreen() {
         receipt_image: receiptImage || null,
       });
 
-      if (type === 'debit') {
-        const { getCategoryTotals } = await import('@/lib/database');
-        const cats = await getCategoryTotals(user.uid);
-        const thisMonthSpend = cats.reduce((sum: number, c: any) => sum + c.amount, 0);
-        const budget = Number(settings?.monthlyBudget) || 0;
-
-        if (budget > 0 && thisMonthSpend > budget) {
-          const { sendBudgetAlert } = await import('@/lib/notifications');
-          const over = Math.round(thisMonthSpend - budget);
-          sendBudgetAlert(over, curr, thisMonthSpend, budget, undefined, user.uid).catch(console.error);
-        }
-      }
-
       Keyboard.dismiss();
       playTransactionSuccessSound().catch(() => {});
       setShowSaveSuccess(true);

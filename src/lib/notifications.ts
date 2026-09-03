@@ -521,6 +521,7 @@ export async function scheduleBillReminder(
 
 /**
  * Send an immediate Budget Alert notification when budget threshold or limit is crossed.
+ * Features strict monthly deduplication so the user is alerted at most ONCE per tier per month.
  */
 export async function sendBudgetAlert(
   amountOver: number,
@@ -528,49 +529,56 @@ export async function sendBudgetAlert(
   currentSpend?: number,
   budgetLimit?: number,
   categoryName?: string,
-  userId?: string
+  userId?: string,
+  force: boolean = false
 ) {
   if (Platform.OS === 'web') return;
 
   try {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const alertKey = `@rupeo_last_budget_alert_${categoryName || 'global'}`;
-    const lastAlertDate = await AsyncStorage.getItem(alertKey);
+    const currentMonth = new Date().toISOString().slice(0, 7); // e.g. "2026-09"
+    const isExceeded = amountOver > 0;
+    const tier = isExceeded ? 'exceeded' : 'warning_80';
+    const alertKey = `@rupeo_budget_alert_${categoryName || 'monthly'}_${currentMonth}_${tier}`;
 
-    if (lastAlertDate === todayStr) {
-      return; // Already sent an alert for this budget today
+    // Don't spam: only alert once per tier per month unless forced
+    if (!force) {
+      const alreadySent = await AsyncStorage.getItem(alertKey);
+      if (alreadySent) {
+        return;
+      }
     }
 
     let title = '';
     let body = '';
 
-    if (amountOver > 0) {
-      title = `⚠️ Budget Exceeded Alert!`;
+    if (isExceeded) {
+      title = `Monthly Budget Exceeded 🚨`;
       const catText = categoryName ? `${categoryName} ` : 'monthly ';
-      body = `You have exceeded your ${catText}budget by ${currency}${amountOver.toLocaleString('en-IN')}! Tap to review your expenses.`;
+      body = `You have spent ${currency}${(currentSpend || 0).toLocaleString('en-IN')}, which exceeds your ${catText}budget of ${currency}${(budgetLimit || 0).toLocaleString('en-IN')}.`;
     } else if (budgetLimit && currentSpend && currentSpend >= budgetLimit * 0.8) {
       const pct = Math.round((currentSpend / budgetLimit) * 100);
-      title = `⚡ Budget Warning (${pct}% Reached)`;
-      body = `You've spent ${currency}${currentSpend.toLocaleString('en-IN')} (${pct}%) of your ${currency}${budgetLimit.toLocaleString('en-IN')} ${categoryName ? categoryName + ' ' : ''}budget. Spend mindfully!`;
+      title = `Budget Alert (80% Reached) ⚠️`;
+      const catText = categoryName ? `${categoryName} ` : 'monthly ';
+      body = `You have used ${pct}% of your ${catText}budget (${currency}${currentSpend.toLocaleString('en-IN')} / ${currency}${budgetLimit.toLocaleString('en-IN')}). Spend mindfully!`;
     } else {
-      title = `⚠️ Budget Alert`;
-      body = `Your spending is close to your budget limit. Tap to check your balance.`;
+      return;
     }
 
-    // 1. OS Push Notification
+    // 1. OS Push Notification with fixed identifier to replace/collapse duplicates
     await Notifications.scheduleNotificationAsync({
+      identifier: `budget_${categoryName || 'monthly'}_${currentMonth}_${tier}`,
       content: {
         title,
         body,
         sound: true,
-        priority: Notifications.AndroidNotificationPriority.MAX,
-        data: { type: 'budget_alert', amountOver, categoryName },
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        data: { type: 'budget_alert', amountOver, categoryName, currentMonth },
         ...(Platform.OS === 'android' ? { channelId: 'budget_alerts' } : {}),
       },
-      trigger: null, // Send immediately
+      trigger: null,
     });
 
-    // 2. In-app notification center
+    // 2. In-app notification center (silentPush: true ensures Firestore watcher won't fire a duplicate push)
     if (userId) {
       await createNotification(userId, {
         title,
@@ -579,9 +587,9 @@ export async function sendBudgetAlert(
         silentPush: true,
       }).catch(e => console.warn('Could not save budget alert to DB:', e));
     }
-    
-    // Mark as sent in local storage
-    await AsyncStorage.setItem(alertKey, todayStr);
+
+    // 3. Mark as sent for this month
+    await AsyncStorage.setItem(alertKey, 'true');
   } catch (error) {
     console.warn('sendBudgetAlert error:', error);
   }

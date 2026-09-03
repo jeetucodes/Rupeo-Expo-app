@@ -818,7 +818,7 @@ export async function checkAndTriggerBudgetAlert(userId: string) {
       getAllTransactions(userId),
     ]);
 
-    const budget = settings?.monthlyBudget || 0;
+    const budget = Number(settings?.monthlyBudget) || 0;
     if (budget <= 0) return;
 
     const currMonth = getLocalMonthString();
@@ -828,19 +828,11 @@ export async function checkAndTriggerBudgetAlert(userId: string) {
 
     const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
 
-    // Check if 100% budget reached
+    const { sendBudgetAlert } = await import('./notifications');
     if (monthSpend >= budget) {
-      await createNotification(userId, {
-        title: 'Monthly Budget Exceeded 🚨',
-        message: `You have spent ${curr}${monthSpend.toLocaleString('en-IN')}, which exceeds your monthly budget of ${curr}${budget.toLocaleString('en-IN')}.`,
-        type: 'budget',
-      });
+      await sendBudgetAlert(Math.round(monthSpend - budget), curr, monthSpend, budget, undefined, userId);
     } else if (monthSpend >= budget * 0.8) {
-      await createNotification(userId, {
-        title: 'Budget Alert (80% Reached) ⚠️',
-        message: `You have used 80% of your monthly budget (${curr}${monthSpend.toLocaleString('en-IN')} / ${curr}${budget.toLocaleString('en-IN')}).`,
-        type: 'budget',
-      });
+      await sendBudgetAlert(0, curr, monthSpend, budget, undefined, userId);
     }
   } catch (err) {
     console.warn('checkAndTriggerBudgetAlert error:', err);
