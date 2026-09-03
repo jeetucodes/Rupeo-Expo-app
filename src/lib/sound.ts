@@ -1,10 +1,7 @@
-import { Audio } from 'expo-av';
 import { Platform } from 'react-native';
 
 // Crystal clear, pleasant luxury success chime URL
 const SUCCESS_CHIME_URL = 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3';
-
-let soundObject: Audio.Sound | null = null;
 
 export async function playTransactionSuccessSound() {
   try {
@@ -45,28 +42,12 @@ export async function playTransactionSuccessSound() {
         }
       }
 
-      const audio = new window.Audio(SUCCESS_CHIME_URL);
-      audio.volume = 0.6;
-      audio.play().catch(() => {});
-      return;
+      if (typeof window !== 'undefined' && (window as any).Audio) {
+        const audio = new (window as any).Audio(SUCCESS_CHIME_URL);
+        audio.volume = 0.6;
+        audio.play().catch(() => {});
+      }
     }
-
-    // Native (iOS & Android)
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-    });
-
-    if (soundObject) {
-      await soundObject.unloadAsync().catch(() => {});
-      soundObject = null;
-    }
-
-    const { sound } = await Audio.Sound.createAsync(
-      { uri: SUCCESS_CHIME_URL },
-      { shouldPlay: true, volume: 0.8 }
-    );
-    soundObject = sound;
   } catch (err) {
     console.warn('Could not play success sound:', err);
   }
