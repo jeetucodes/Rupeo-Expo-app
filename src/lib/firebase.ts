@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 // @ts-ignore
 import { getAuth, initializeAuth, getReactNativePersistence } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, Firestore } from 'firebase/firestore';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -44,10 +44,14 @@ export { auth };
 
 let dbInstance: Firestore;
 try {
-  dbInstance = app ? getFirestore(app) : ({} as Firestore);
+  dbInstance = app ? initializeFirestore(app, { ignoreUndefinedProperties: true }) : ({} as Firestore);
 } catch (firestoreErr) {
-  console.error('Firestore init error:', firestoreErr);
-  dbInstance = {} as Firestore;
+  try {
+    dbInstance = app ? getFirestore(app) : ({} as Firestore);
+  } catch {
+    console.error('Firestore init error:', firestoreErr);
+    dbInstance = {} as Firestore;
+  }
 }
 export const db = dbInstance;
 

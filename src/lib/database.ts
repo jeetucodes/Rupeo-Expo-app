@@ -1025,14 +1025,29 @@ export async function recordPremiumPayment(
   if (!userId) return null;
   const now = new Date().toISOString();
 
-  // 1. Save payment record in user's subcollection
-  const userPayRef = collection(db, `users/${userId}/premium_payments`);
-  const docRes = await addDoc(userPayRef, {
-    ...paymentData,
+  // Clean data so Firestore never receives undefined properties
+  const cleanData: Record<string, any> = {
+    plan: paymentData.plan || 'monthly',
+    amount: typeof paymentData.amount === 'number' ? paymentData.amount : 0,
+    paymentMode: paymentData.paymentMode || 'Razorpay',
+    discount: typeof paymentData.discount === 'number' ? paymentData.discount : 0,
+    userEmail: paymentData.userEmail || 'unknown',
+    userName: paymentData.userName || 'Rupeo User',
     status: 'success',
     timestamp: now,
     created_at: serverTimestamp(),
-  });
+  };
+
+  if (paymentData.utr) {
+    cleanData.utr = paymentData.utr;
+  }
+  if (paymentData.couponCode) {
+    cleanData.couponCode = paymentData.couponCode;
+  }
+
+  // 1. Save payment record in user's subcollection
+  const userPayRef = collection(db, `users/${userId}/premium_payments`);
+  const docRes = await addDoc(userPayRef, cleanData);
 
   // 2. Save payment record in global 'payments' collection for Admin Panel
   try {
@@ -1040,10 +1055,7 @@ export async function recordPremiumPayment(
     await addDoc(globalPayRef, {
       id: docRes.id,
       userId,
-      ...paymentData,
-      status: 'success',
-      timestamp: now,
-      created_at: serverTimestamp(),
+      ...cleanData,
     });
   } catch (err) {
     console.warn('Could not record global payment:', err);

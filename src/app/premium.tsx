@@ -441,10 +441,10 @@ export default function PremiumScreen() {
       await recordPremiumPayment(user.uid, {
         plan: selectedPlan,
         amount: finalPayAmount,
-        utr: paymentId,
+        utr: paymentId || '',
         paymentMode: appliedCoupon?.isFree ? 'Free_Coupon' : 'Razorpay',
-        couponCode: appliedCoupon?.code,
-        discount: discountAmount,
+        ...(appliedCoupon?.code ? { couponCode: appliedCoupon.code } : {}),
+        discount: discountAmount || 0,
         userEmail: user.email || 'unknown',
         userName: user.displayName || 'Rupeo User',
       });
