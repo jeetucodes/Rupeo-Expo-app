@@ -37,6 +37,17 @@ const formatAmount = (amount: number) => {
   });
 };
 
+const formatCashflow = (amount: number) => {
+  if (!amount || amount === 0) return '0';
+  if (amount % 1 === 0) {
+    return amount.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  }
+  return amount.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
 const getPaymentModeMeta = (modeName: string) => {
   const m = (modeName || '').toLowerCase();
   if (m.includes('upi')) return { label: 'UPI', icon: 'flash', color: '#7C3AED', bg: '#EDE9FE' };
@@ -649,64 +660,73 @@ export default function TransactionsScreen() {
           />
         }
       >
-        {/* Cashflow Inflow / Outflow & Net Savings Strip */}
-        <View style={styles.cashflowCard}>
-          <View style={styles.cashflowCol}>
-            <View style={styles.cashflowLabelRow}>
-              <View style={[styles.mini3dCircle, { backgroundColor: '#ECFDF5' }]}>
-                <ExpoImage
-                  source={{ uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20Bag.png' }}
-                  style={{ width: 18, height: 18 }}
-                  contentFit="contain"
-                />
+        {/* Cashflow Inflow / Outflow & Net Savings Grid */}
+        <View style={styles.cashflowContainer}>
+          {/* INFLOW TILE */}
+          <View style={[styles.cashflowTile, styles.inflowTile]}>
+            <View style={styles.cashflowTileHeader}>
+              <View style={[styles.cashflowIconBadge, { backgroundColor: '#DCFCE7' }]}>
+                <Ionicons name="arrow-down" size={12} color="#15803D" />
               </View>
-              <Text style={styles.cashflowLabel}>Inflow</Text>
-            </View>
-            <Text style={[styles.cashflowValue, { color: '#059669' }]}>
-              +{curr}{formatAmount(totalInflow)}
-            </Text>
-          </View>
-
-          <View style={styles.cashflowDivider} />
-
-          <View style={styles.cashflowCol}>
-            <View style={styles.cashflowLabelRow}>
-              <View style={[styles.mini3dCircle, { backgroundColor: '#FEF2F2' }]}>
-                <ExpoImage
-                  source={{ uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20with%20Wings.png' }}
-                  style={{ width: 18, height: 18 }}
-                  contentFit="contain"
-                />
-              </View>
-              <Text style={styles.cashflowLabel}>Outflow</Text>
-            </View>
-            <Text style={[styles.cashflowValue, { color: '#DC2626' }]}>
-              -{curr}{formatAmount(totalOutflow)}
-            </Text>
-          </View>
-
-          <View style={styles.cashflowDivider} />
-
-          <View style={styles.cashflowCol}>
-            <View style={styles.cashflowLabelRow}>
-              <View style={[styles.mini3dCircle, { backgroundColor: (totalInflow - totalOutflow) >= 0 ? '#EFF6FF' : '#FEF2F2' }]}>
-                <Ionicons
-                  name={(totalInflow - totalOutflow) >= 0 ? 'wallet-outline' : 'trending-down'}
-                  size={14}
-                  color={(totalInflow - totalOutflow) >= 0 ? '#2563EB' : '#DC2626'}
-                />
-              </View>
-              <Text style={styles.cashflowLabel}>Net</Text>
+              <Text style={[styles.cashflowTileLabel, { color: '#15803D' }]}>INFLOW</Text>
             </View>
             <Text
-              style={[
-                styles.cashflowValue,
-                { color: (totalInflow - totalOutflow) >= 0 ? '#2563EB' : '#DC2626' },
-              ]}
+              style={[styles.cashflowTileValue, { color: '#16A34A' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
             >
-              {(totalInflow - totalOutflow) >= 0 ? '+' : '-'}{curr}{formatAmount(Math.abs(totalInflow - totalOutflow))}
+              +{curr}{formatCashflow(totalInflow)}
             </Text>
           </View>
+
+          {/* OUTFLOW TILE */}
+          <View style={[styles.cashflowTile, styles.outflowTile]}>
+            <View style={styles.cashflowTileHeader}>
+              <View style={[styles.cashflowIconBadge, { backgroundColor: '#FEE2E2' }]}>
+                <Ionicons name="arrow-up" size={12} color="#DC2626" />
+              </View>
+              <Text style={[styles.cashflowTileLabel, { color: '#B91C1C' }]}>OUTFLOW</Text>
+            </View>
+            <Text
+              style={[styles.cashflowTileValue, { color: '#DC2626' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              -{curr}{formatCashflow(totalOutflow)}
+            </Text>
+          </View>
+
+          {/* NET TILE */}
+          {(() => {
+            const netVal = totalInflow - totalOutflow;
+            const isPositive = netVal >= 0;
+            const netColor = isPositive ? '#2563EB' : '#D97706';
+            const netBg = isPositive ? '#EFF6FF' : '#FFFBEB';
+            const netBorder = isPositive ? '#DBEAFE' : '#FEF3C7';
+            const netBadgeBg = isPositive ? '#DBEAFE' : '#FDE68A';
+
+            return (
+              <View style={[styles.cashflowTile, { backgroundColor: netBg, borderColor: netBorder }]}>
+                <View style={styles.cashflowTileHeader}>
+                  <View style={[styles.cashflowIconBadge, { backgroundColor: netBadgeBg }]}>
+                    <Ionicons
+                      name={isPositive ? 'wallet-outline' : 'scale-outline'}
+                      size={12}
+                      color={netColor}
+                    />
+                  </View>
+                  <Text style={[styles.cashflowTileLabel, { color: netColor }]}>NET</Text>
+                </View>
+                <Text
+                  style={[styles.cashflowTileValue, { color: netColor }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {isPositive ? '+' : '-'}{curr}{formatCashflow(Math.abs(netVal))}
+                </Text>
+              </View>
+            );
+          })()}
         </View>
 
         {/* Search Bar */}
@@ -1192,59 +1212,56 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
-  cashflowCard: {
+  cashflowContainer: {
     flexDirection: 'row',
-    marginHorizontal: 20,
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 2,
+    marginHorizontal: 16,
+    gap: 10,
+    marginBottom: 16,
   },
-  cashflowCol: {
+  cashflowTile: {
     flex: 1,
-    alignItems: 'center',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 1,
+    justifyContent: 'space-between',
   },
-  cashflowLabelRow: {
+  inflowTile: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#DCFCE7',
+  },
+  outflowTile: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FEE2E2',
+  },
+  cashflowTileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    gap: 6,
+    marginBottom: 6,
   },
-  mini3dCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  cashflowIconBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
   },
-  dotCircle: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    marginRight: 5,
-  },
-  cashflowLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6B7280',
+  cashflowTileLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
-  cashflowValue: {
-    fontSize: 18,
+  cashflowTileValue: {
+    fontSize: 15.5,
     fontWeight: '900',
     letterSpacing: -0.3,
-  },
-  cashflowDivider: {
-    width: 1,
-    height: '80%',
-    backgroundColor: '#F3F4F6',
-    alignSelf: 'center',
   },
   searchBarWrap: {
     flexDirection: 'row',
