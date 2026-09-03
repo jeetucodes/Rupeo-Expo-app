@@ -209,7 +209,7 @@ function SettingsRow({
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, logout, settings, setSettings, refreshUser, isPremium } = useAuth();
+  const { user, logout, settings, setSettings, refreshUser, isPremium, downgradeFromPremium } = useAuth();
   const { t } = useTranslation();
 
   const [totalSpend, setTotalSpend] = useState<number>(0);
@@ -634,6 +634,35 @@ export default function SettingsScreen() {
               </View>
             </LinearGradient>
           </TouchableOpacity>
+
+          {isPremium && (
+            <TouchableOpacity
+              style={{
+                alignSelf: 'center',
+                marginTop: -6,
+                marginBottom: 14,
+                paddingVertical: 6,
+                paddingHorizontal: 14,
+                backgroundColor: '#F1F5F9',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#E2E8F0',
+              }}
+              onPress={async () => {
+                await downgradeFromPremium();
+                Toast.show({
+                  type: 'info',
+                  text1: 'Switched to Free Account',
+                  text2: 'AdMob ads are now enabled on Dashboard & Add Expense.',
+                });
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#475569' }}>
+                🧪 Test Ads: Switch to Free Account
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* Planning & Categories */}
           <View style={styles.section}>

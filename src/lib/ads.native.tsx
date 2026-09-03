@@ -33,8 +33,8 @@ export async function initializeAds() {
 /**
  * Preload the Transaction Save Interstitial Ad
  */
-export function preloadTransactionSaveAd() {
-  const adUnitId = __DEV__ ? TestIds.INTERSTITIAL : ADMOB_CONFIG.transactionSaveId;
+export function preloadTransactionSaveAd(useTest: boolean = __DEV__) {
+  const adUnitId = useTest ? TestIds.INTERSTITIAL : ADMOB_CONFIG.transactionSaveId;
 
   try {
     interstitial = InterstitialAd.createForAdRequest(adUnitId, {
@@ -48,12 +48,16 @@ export function preloadTransactionSaveAd() {
     interstitial.addAdEventListener(AdEventType.CLOSED, () => {
       isInterstitialLoaded = false;
       // Preload next ad
-      preloadTransactionSaveAd();
+      preloadTransactionSaveAd(useTest);
     });
 
     interstitial.addAdEventListener(AdEventType.ERROR, (error: any) => {
-      console.warn('AdMob Interstitial failed to load:', error);
+      console.warn('AdMob Interstitial failed to load with unitId:', adUnitId, error);
       isInterstitialLoaded = false;
+      if (!useTest) {
+        // Fallback to Test ID if live ad unit had no fill
+        preloadTransactionSaveAd(true);
+      }
     });
 
     interstitial.load();
@@ -90,23 +94,34 @@ export async function showTransactionSaveAd(isUserPremium: boolean = false): Pro
 export function HomeBannerAd({ style }: { style?: any }) {
   const { isPremium, appConfig } = useAuth();
   const [adError, setAdError] = useState(false);
+  const [useTestAd, setUseTestAd] = useState(__DEV__);
 
   // If user is premium or Admin disabled ads, never render ads!
   if (isPremium || appConfig?.showAds === false || adError) return null;
 
-  const adUnitId = __DEV__ ? TestIds.BANNER : ADMOB_CONFIG.homeBannerId;
+  const adUnitId = useTestAd ? TestIds.BANNER : ADMOB_CONFIG.homeBannerId;
 
   return (
     <View style={[styles.bannerContainer, style]}>
       <BannerAd
+        key={adUnitId}
         unitId={adUnitId}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         requestOptions={{
           requestNonPersonalizedAdsOnly: false,
         }}
+        onAdLoaded={() => {
+          setAdError(false);
+        }}
         onAdFailedToLoad={(error: any) => {
-          console.warn('AdMob Home Banner failed to load:', error);
-          setAdError(true);
+          console.warn('AdMob Home Banner failed to load with unitId:', adUnitId, error);
+          if (!useTestAd) {
+            // Live AdMob unit failed or has no fill (e.g. app in testing/unapproved).
+            // Fallback to Google Test Banner ID so ads are visible during testing!
+            setUseTestAd(true);
+          } else {
+            setAdError(true);
+          }
         }}
       />
     </View>
