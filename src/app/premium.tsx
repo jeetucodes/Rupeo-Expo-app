@@ -20,7 +20,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { useAuth } from '@/context/AuthContext';
 import { recordPremiumPayment, validateCoupon, CouponItem } from '@/lib/database';
-import { RAZORPAY_KEY_ID, loadRazorpayWebScript } from '@/lib/razorpay';
+import {
+  RAZORPAY_KEY_ID,
+  loadRazorpayWebScript,
+  createRazorpayPaymentLink,
+  verifyRazorpayPaymentLink,
+} from '@/lib/razorpay';
+import * as WebBrowser from 'expo-web-browser';
 import Toast from 'react-native-toast-message';
 
 const { width } = Dimensions.get('window');
@@ -412,16 +418,64 @@ export default function PremiumScreen() {
         });
         rzp.open();
       } else {
+        // Native (Android / iOS): Open real Razorpay Payment Gateway
         Toast.show({
           type: 'info',
           text1: 'Opening Razorpay Gateway...',
-          text2: `Amount: ₹${finalPayAmount}`,
+          text2: `Plan: ${activePlanObj.title} • ₹${finalPayAmount}`,
         });
 
-        setTimeout(async () => {
-          const simulatedId = `pay_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
-          await onPaymentSuccess(simulatedId);
-        }, 1200);
+        const link = await createRazorpayPaymentLink({
+          amount: finalPayAmount,
+          planName: activePlanObj.title,
+          userName: user.displayName || 'Rupeo User',
+          userEmail: user.email || undefined,
+        });
+
+        if (!link?.short_url) {
+          throw new Error('Unable to connect to Razorpay. Please check your internet connection.');
+        }
+
+        // Open in-app browser with the payment link
+        await WebBrowser.openBrowserAsync(link.short_url, {
+          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+          toolbarColor: '#07090E',
+          controlsColor: '#FFD740',
+        });
+
+        // When user returns/closes the payment gateway, verify status with Razorpay
+        Toast.show({
+          type: 'info',
+          text1: 'Verifying Payment...',
+          text2: 'Checking payment status with Razorpay.',
+        });
+
+        // Poll verification up to 3 times to allow settlement
+        let verified = false;
+        let paymentId = '';
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const res = await verifyRazorpayPaymentLink(link.id);
+          if (res.paid) {
+            verified = true;
+            paymentId = res.paymentId || link.id;
+            break;
+          }
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
+
+        if (verified) {
+          await onPaymentSuccess(paymentId);
+        } else {
+          setIsProcessing(false);
+          Toast.show({
+            type: 'error',
+            text1: 'Payment Incomplete',
+            text2: 'Payment was not completed or was cancelled. Premium was not activated.',
+          });
+        }
       }
     } catch (e: any) {
       setIsProcessing(false);

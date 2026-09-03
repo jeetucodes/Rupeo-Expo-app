@@ -5,6 +5,120 @@ export const RAZORPAY_KEY_ID =
   process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
   'rzp_live_TQMdj9APTi1kqE';
 
+export const RAZORPAY_KEY_SECRET =
+  process.env.EXPO_PUBLIC_RAZORPAY_KEY_SECRET ||
+  process.env.RAZORPAY_KEY_SECRET ||
+  'a0Ml0dwic3Sb70dEEeMafwuj';
+
+function toBase64(str: string): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  let output = '';
+  for (
+    let block = 0, charCode, i = 0, map = chars;
+    str.charAt(i | 0) || (map = '=', i % 1);
+    output += map.charAt(63 & (block >> (8 - (i % 1) * 8)))
+  ) {
+    charCode = str.charCodeAt((i += 3 / 4));
+    block = (block << 8) | charCode;
+  }
+  return output;
+}
+
+/**
+ * Create a live Razorpay Payment Link for Mobile In-App Checkout
+ */
+export async function createRazorpayPaymentLink(options: {
+  amount: number; // in INR e.g. 29 or 199
+  planName: string;
+  userName?: string;
+  userEmail?: string;
+  userPhone?: string;
+}): Promise<{ id: string; short_url: string } | null> {
+  try {
+    const authHeader = `Basic ${toBase64(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`)}`;
+    const response = await fetch('https://api.razorpay.com/v1/payment_links', {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        amount: Math.round(options.amount * 100), // in paise
+        currency: 'INR',
+        description: `Rupeo Pro - ${options.planName}`,
+        customer: {
+          name: options.userName || 'Rupeo User',
+          email: options.userEmail || undefined,
+          contact: options.userPhone || undefined,
+        },
+        notify: {
+          sms: false,
+          email: Boolean(options.userEmail),
+          whatsapp: false,
+        },
+        reminder_enable: false,
+        callback_url: 'https://paisewaise-e545e.web.app/payment-success',
+        callback_method: 'get',
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('Razorpay create payment link error:', errText);
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      id: data.id,
+      short_url: data.short_url,
+    };
+  } catch (err) {
+    console.error('createRazorpayPaymentLink exception:', err);
+    return null;
+  }
+}
+
+/**
+ * Verify if the Razorpay Payment Link was actually paid
+ */
+export async function verifyRazorpayPaymentLink(paymentLinkId: string): Promise<{
+  paid: boolean;
+  paymentId?: string;
+  status: string;
+}> {
+  try {
+    const authHeader = `Basic ${toBase64(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`)}`;
+    const response = await fetch(`https://api.razorpay.com/v1/payment_links/${paymentLinkId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: authHeader,
+      },
+    });
+
+    if (!response.ok) {
+      return { paid: false, status: 'error' };
+    }
+
+    const data = await response.json();
+    const isPaid = data.status === 'paid';
+
+    let paymentId = paymentLinkId;
+    if (data.payments && Array.isArray(data.payments) && data.payments.length > 0) {
+      paymentId = data.payments[0].payment_id || paymentLinkId;
+    }
+
+    return {
+      paid: isPaid,
+      paymentId,
+      status: data.status,
+    };
+  } catch (err) {
+    console.error('verifyRazorpayPaymentLink exception:', err);
+    return { paid: false, status: 'exception' };
+  }
+}
+
 export interface RazorpayOptions {
   amount: number; // in INR (e.g. 499)
   planName: string; // e.g. "Lifetime VIP"
