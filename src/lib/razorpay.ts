@@ -3,12 +3,12 @@ import { Platform } from 'react-native';
 export const RAZORPAY_KEY_ID =
   process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID ||
   process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
-  'rzp_live_TQMdj9APTi1kqE';
+  '';
 
 export const RAZORPAY_KEY_SECRET =
   process.env.EXPO_PUBLIC_RAZORPAY_KEY_SECRET ||
   process.env.RAZORPAY_KEY_SECRET ||
-  'a0Ml0dwic3Sb70dEEeMafwuj';
+  '';
 
 function toBase64(str: string): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
