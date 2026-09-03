@@ -361,30 +361,24 @@ export default function AddExpenseScreen() {
       Keyboard.dismiss();
       playTransactionSuccessSound().catch(() => {});
       setShowSaveSuccess(true);
-      successScale.setValue(0.3);
+      successScale.setValue(0);
       successOpacity.setValue(0);
-      successRingScale.setValue(0.6);
-      successRingOpacity.setValue(1);
-      successCheckScale.setValue(0.1);
-      successCheckRotate.setValue(0);
-      successBurst.setValue(0);
+      successRingScale.setValue(0.7);
+      successRingOpacity.setValue(0.7);
+      successCheckScale.setValue(0);
       successContentY.setValue(20);
 
       Animated.parallel([
-        // Card pop in
-        Animated.spring(successScale, { toValue: 1, friction: 6, tension: 90, useNativeDriver: true }),
-        Animated.timing(successOpacity, { toValue: 1, duration: 200, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        
-        // 3D Checkmark bounce & rotation
-        Animated.spring(successCheckScale, { toValue: 1, friction: 3.8, tension: 120, delay: 60, useNativeDriver: true }),
-        Animated.spring(successCheckRotate, { toValue: 1, friction: 5, tension: 80, delay: 60, useNativeDriver: true }),
-        
-        // Particle explosion burst
-        Animated.timing(successBurst, { toValue: 1, duration: 650, delay: 80, easing: Easing.out(Easing.back(1.5)), useNativeDriver: true }),
+        // Emerald circle spring pop
+        Animated.spring(successScale, { toValue: 1, friction: 5, tension: 120, useNativeDriver: true }),
+        Animated.timing(successOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
 
-        // Expanding ambient aura rings
-        Animated.timing(successRingScale, { toValue: 1.7, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        Animated.timing(successRingOpacity, { toValue: 0, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        // Soft ambient halo ring expansion
+        Animated.timing(successRingScale, { toValue: 1.6, duration: 750, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(successRingOpacity, { toValue: 0, duration: 750, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+
+        // White tick mark pop & lock
+        Animated.spring(successCheckScale, { toValue: 1, friction: 3.5, tension: 130, delay: 60, useNativeDriver: true }),
 
         // Content reveal slide
         Animated.spring(successContentY, { toValue: 0, friction: 7, tension: 85, delay: 100, useNativeDriver: true }),
@@ -393,7 +387,7 @@ export default function AddExpenseScreen() {
       successTimer.current = setTimeout(() => {
         showTransactionSaveAd(isPremium).catch(() => {});
         safeGoBack(router);
-      }, 1450);
+      }, 1400);
     } catch (error: any) {
       console.error('Failed to add transaction', error);
       Toast.show({ type: 'error', text1: 'Error', text2: error.message || 'Failed to save transaction' });
@@ -973,145 +967,68 @@ export default function AddExpenseScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* 3D LUXURY TICK MARK SAVE SUCCESS MODAL WITH SOUND */}
-      <Modal visible={showSaveSuccess} transparent animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
-        <View style={styles.saveSuccessOverlay}>
-          <Animated.View style={[styles.saveSuccessContent, { opacity: successOpacity, transform: [{ scale: successScale }] }]}>
-            {/* Multi-layer expanding radial ripple rings */}
+      {/* MINIMALISTIC FULLSCREEN SUCCESS TICK ANIMATION */}
+      <Modal visible={showSaveSuccess} transparent={false} animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
+        <SafeAreaView style={styles.fullscreenSuccessContainer}>
+          <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+          
+          <View style={styles.fullscreenSuccessCenter}>
+            {/* Soft Ambient Halo */}
             <Animated.View
               style={[
-                styles.saveSuccessRing,
+                styles.fullscreenSuccessRing,
                 {
-                  borderColor: isExpense ? '#EF4444' : '#10B981',
-                  opacity: successRingOpacity,
-                  transform: [{ scale: successRingScale }],
-                },
-              ]}
-            />
-            <Animated.View
-              style={[
-                styles.saveSuccessRingSecondary,
-                {
-                  borderColor: isExpense ? '#FCA5A5' : '#86EFAC',
                   opacity: successRingOpacity,
                   transform: [{ scale: successRingScale }],
                 },
               ]}
             />
 
-            {/* Floating 3D Celebration Burst Particles */}
-            {[
-              { uri: ICONS_3D.sparkles, dx: -55, dy: -55, size: 22 },
-              { uri: ICONS_3D.party, dx: 55, dy: -50, size: 24 },
-              { uri: ICONS_3D.fire, dx: -65, dy: 15, size: 20 },
-              { uri: ICONS_3D.sparkles, dx: 65, dy: 20, size: 22 },
-              { uri: ICONS_3D.party, dx: -45, dy: 60, size: 22 },
-              { uri: ICONS_3D.sparkles, dx: 45, dy: 60, size: 20 },
-            ].map((p, idx) => (
-              <Animated.View
-                key={idx}
-                pointerEvents="none"
-                style={[
-                  styles.burstParticleWrap,
-                  {
-                    transform: [
-                      {
-                        translateX: successBurst.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0, p.dx],
-                        }),
-                      },
-                      {
-                        translateY: successBurst.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0, p.dy],
-                        }),
-                      },
-                      {
-                        scale: successBurst.interpolate({
-                          inputRange: [0, 0.4, 1],
-                          outputRange: [0, 1.2, 0.85],
-                        }),
-                      },
-                    ],
-                    opacity: successBurst.interpolate({
-                      inputRange: [0, 0.2, 0.8, 1],
-                      outputRange: [0, 1, 1, 0],
-                    }),
-                  },
-                ]}
-              >
-                <ExpoImage
-                  source={{ uri: p.uri }}
-                  style={{ width: p.size, height: p.size }}
-                  contentFit="contain"
-                />
-              </Animated.View>
-            ))}
-
-            {/* Glowing 3D Checkmark Icon Box with Spring & Rotation */}
+            {/* Solid Emerald Checkmark Circle */}
             <Animated.View
               style={[
-                styles.saveSuccessIconBox,
+                styles.fullscreenCheckCircle,
                 {
-                  backgroundColor: isExpense ? '#FEF2F2' : '#ECFDF5',
-                  borderColor: isExpense ? '#EF4444' : '#10B981',
-                  transform: [
-                    { scale: successCheckScale },
-                    {
-                      rotate: successCheckRotate.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ['-22deg', '0deg'],
-                      }),
-                    },
-                  ],
-                  shadowColor: isExpense ? '#EF4444' : '#10B981',
+                  opacity: successOpacity,
+                  transform: [{ scale: successScale }],
                 },
               ]}
             >
-              <ExpoImage
-                source={{ uri: ICONS_3D.checkmark }}
-                style={{ width: 56, height: 56 }}
-                contentFit="contain"
-              />
+              <Animated.View style={{ transform: [{ scale: successCheckScale }] }}>
+                <Ionicons name="checkmark" size={54} color="#FFFFFF" />
+              </Animated.View>
             </Animated.View>
 
-            {/* Animated Content Container */}
-            <Animated.View style={{ alignItems: 'center', width: '100%', transform: [{ translateY: successContentY }] }}>
-              {/* Title & Micro badge */}
-              <View style={styles.saveSuccessBadgeRow}>
-                <ExpoImage
-                  source={{ uri: ICONS_3D.sparkles }}
-                  style={{ width: 16, height: 16, marginRight: 5 }}
-                  contentFit="contain"
-                />
-                <Text style={[styles.saveSuccessBadgeText, { color: isExpense ? '#DC2626' : '#059669' }]}>
-                  {isExpense ? 'EXPENSE RECORDED' : 'INCOME RECORDED'}
-                </Text>
-              </View>
-
-              {/* Big Formatted Amount */}
-              <Text style={[styles.saveSuccessAmount, { color: isExpense ? '#DC2626' : '#059669' }]}>
-                {isExpense ? '-' : '+'}{curr}{Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            {/* Minimalist Details Below */}
+            <Animated.View
+              style={[
+                styles.fullscreenContentWrap,
+                {
+                  opacity: successOpacity,
+                  transform: [{ translateY: successContentY }],
+                },
+              ]}
+            >
+              <Text style={styles.fullscreenSuccessTitle}>
+                {isExpense ? 'Paid Successfully' : 'Received Successfully'}
               </Text>
 
-              {/* Merchant & Payment Mode Chip */}
-              <View style={styles.saveSuccessMetaRow}>
-                <Text style={styles.saveSuccessMerchantText} numberOfLines={1}>
-                  {merchant || 'Transaction'}
-                </Text>
-                <View style={styles.saveSuccessModePill}>
-                  <Text style={styles.saveSuccessModeText}>{paymentMode} • {category}</Text>
-                </View>
-              </View>
+              <Text style={styles.fullscreenSuccessAmount}>
+                {curr}{Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </Text>
 
-              <View style={styles.saveSuccessFooterTag}>
-                <Ionicons name="checkmark-circle" size={14} color="#10B981" style={{ marginRight: 4 }} />
-                <Text style={styles.saveSuccessFooterText}>Synced to Google Cloud Vault</Text>
+              <Text style={styles.fullscreenSuccessMerchant} numberOfLines={1}>
+                {merchant || 'Transaction'}
+              </Text>
+
+              <View style={styles.fullscreenSuccessBadge}>
+                <Text style={styles.fullscreenSuccessBadgeText}>
+                  {paymentMode} • {category}
+                </Text>
               </View>
             </Animated.View>
-          </Animated.View>
-        </View>
+          </View>
+        </SafeAreaView>
       </Modal>
 
       {/* FULLSCREEN RECEIPT PREVIEW MODAL */}
@@ -1627,123 +1544,73 @@ const styles = StyleSheet.create({
   },
 
   // LUXURY SUCCESS OVERLAY
-  saveSuccessOverlay: {
+  fullscreenSuccessContainer: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.75)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveSuccessContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fullscreenSuccessCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
     paddingHorizontal: 24,
-    paddingTop: 28,
-    paddingBottom: 22,
-    alignItems: 'center',
-    width: '85%',
-    maxWidth: 340,
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 12 },
-    shadowRadius: 24,
-    elevation: 10,
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
   },
-  saveSuccessRing: {
+  fullscreenSuccessRing: {
     position: 'absolute',
-    top: 14,
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 2,
+    top: -12,
+    width: 124,
+    height: 124,
+    borderRadius: 62,
+    backgroundColor: '#D1FAE5',
   },
-  saveSuccessRingSecondary: {
-    position: 'absolute',
-    top: 6,
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    borderWidth: 1.5,
-  },
-  burstParticleWrap: {
-    position: 'absolute',
-    top: 38,
+  fullscreenCheckCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#10B981',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 10,
-  },
-  saveSuccessIconBox: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 2,
-    shadowOpacity: 0.25,
+    shadowColor: '#10B981',
+    shadowOpacity: 0.35,
     shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 12,
-    elevation: 4,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  saveSuccessBadgeRow: {
-    flexDirection: 'row',
+  fullscreenContentWrap: {
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    marginTop: 28,
   },
-  saveSuccessBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-  saveSuccessAmount: {
-    fontSize: 28,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-    marginBottom: 8,
-  },
-  saveSuccessMetaRow: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  saveSuccessMerchantText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  saveSuccessModePill: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  saveSuccessModeText: {
-    fontSize: 11,
+  fullscreenSuccessTitle: {
+    fontSize: 16,
     fontWeight: '700',
     color: '#64748B',
+    marginBottom: 6,
   },
-  saveSuccessFooterTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-    width: '100%',
-    justifyContent: 'center',
+  fullscreenSuccessAmount: {
+    fontSize: 36,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.8,
+    marginBottom: 8,
   },
-  saveSuccessFooterText: {
-    fontSize: 11,
+  fullscreenSuccessMerchant: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#059669',
+    color: '#334155',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  fullscreenSuccessBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  fullscreenSuccessBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
   },
 
   // PREVIEW MODAL
