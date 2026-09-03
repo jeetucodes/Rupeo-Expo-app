@@ -13,47 +13,6 @@ export function preloadTransactionSaveAd(): void {}
 export async function showTransactionSaveAd(isUserPremium: boolean = false): Promise<void> {}
 
 export function HomeBannerAd({ style }: { style?: any }) {
-  const { isPremium, appConfig } = useAuth();
-
-  if (isPremium || appConfig?.showAds === false) {
-    return null;
-  }
-
-  if (__DEV__) {
-    return (
-      <View style={[styles.devBannerPlaceholder, style]}>
-        <Text style={styles.devBannerText}>📢 AdMob Home Banner (Hidden for Premium users)</Text>
-        <Text style={styles.devBannerSub}>Unit ID: {ADMOB_CONFIG.homeBannerId}</Text>
-      </View>
-    );
-  }
+  // Banner ads on Web are not supported by react-native-google-mobile-ads
   return null;
 }
-
-const styles = StyleSheet.create({
-  devBannerPlaceholder: {
-    backgroundColor: '#FEF9E7',
-    borderWidth: 1,
-    borderColor: '#FFD740',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginHorizontal: 20,
-    marginVertical: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  devBannerText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#92400E',
-    textAlign: 'center',
-  },
-  devBannerSub: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#B45309',
-    marginTop: 2,
-    textAlign: 'center',
-  },
-});
