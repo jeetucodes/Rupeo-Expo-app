@@ -222,7 +222,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const isPremiumUser = Boolean(user?.isPremium || settings?.isPremium);
+  // All premium features 100% free and unlocked for all users
+  const isPremiumUser = true;
 
   return (
     <AuthContext.Provider

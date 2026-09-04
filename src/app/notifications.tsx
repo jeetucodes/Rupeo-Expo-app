@@ -73,6 +73,30 @@ export default function NotificationsScreen() {
     return unsubscribe;
   }, [user]);
 
+  // Auto-mark notifications as read when screen is viewed
+  useEffect(() => {
+    if (!user?.uid || notifications.length === 0) return;
+
+    const hasUnread = notifications.some(n => !n.isRead);
+    if (!hasUnread) return;
+
+    // Small delay (800ms) so user can visibly see what was newly received before unread dots/pill clear
+    const timer = setTimeout(async () => {
+      try {
+        await markNotificationsAsRead(user.uid);
+        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      } catch (err) {
+        console.warn('Error auto-marking notifications as read:', err);
+      }
+    }, 800);
+
+    return () => {
+      clearTimeout(timer);
+      // If user navigates away before timer ends, mark as read immediately
+      markNotificationsAsRead(user.uid).catch(() => {});
+    };
+  }, [user?.uid, notifications]);
+
   const refreshPermissionStatus = async () => {
     try {
       const { status } = await Notifications.getPermissionsAsync();
@@ -85,7 +109,14 @@ export default function NotificationsScreen() {
   useFocusEffect(
     React.useCallback(() => {
       refreshPermissionStatus();
-    }, [])
+      if (user?.uid) {
+        // Auto mark read on screen focus
+        const focusTimer = setTimeout(() => {
+          markNotificationsAsRead(user.uid).catch(() => {});
+        }, 1200);
+        return () => clearTimeout(focusTimer);
+      }
+    }, [user?.uid])
   );
 
   const handleEnableNotifications = async () => {

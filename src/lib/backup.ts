@@ -95,26 +95,12 @@ export async function exportTransactions(
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       return { success: true, count, filename };
-    } else if (Platform.OS === 'android') {
-      const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-      if (!permissions.granted) {
-        return { success: false, count: 0, error: 'Permission denied to save file.' };
-      }
-
-      const fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-        permissions.directoryUri,
-        filename,
-        mimeType
-      );
-
-      await FileSystem.writeAsStringAsync(fileUri, content, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-
-      return { success: true, count, filename, fileUri };
     } else {
-      // iOS fallback (Save to Files via Share Sheet)
-      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+      // Android & iOS: Save backup to cache/documents directory and trigger native Share Sheet.
+      // This prevents Android 11+ Scoped Storage / SAF (createSAFFileAsync) java.io.IOException when restricted directories like Downloads are selected.
+      const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
+      const fileUri = `${baseDir}${filename}`;
+
       await FileSystem.writeAsStringAsync(fileUri, content, {
         encoding: FileSystem.EncodingType.UTF8,
       });

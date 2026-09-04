@@ -226,6 +226,112 @@ const dictionary: Record<string, Record<Language, string>> = {
   search_currency: { English: 'Search Currency', Hindi: 'मुद्रा खोजें', Hinglish: 'Currency Search Karein' },
   popular_currencies: { English: 'Popular Currencies', Hindi: 'लोकप्रिय मुद्राएं', Hinglish: 'Popular Currencies' },
   all_currencies: { English: 'All Currencies', Hindi: 'सभी मुद्राएं', Hinglish: 'All Currencies' },
+
+  // AI Insights / Reports Screen
+  financial_reports: { English: 'Financial Reports', Hindi: 'वित्तीय रिपोर्ट', Hinglish: 'Financial Reports' },
+  income_expense_analytics: { English: 'Income, expense & spending analytics', Hindi: 'आय, खर्च और स्पेंडिंग एनालिटिक्स', Hinglish: 'Income, expense aur spending analytics' },
+  loading_analytics: { English: 'Loading Analytics...', Hindi: 'एनालिटिक्स लोड हो रहा है...', Hinglish: 'Analytics load ho rahi hai...' },
+  no_data_period: { English: 'No transactions this period', Hindi: 'इस अवधि में कोई लेन-देन नहीं', Hinglish: 'Is period mein koi transaction nahi' },
+  add_first_tx: { English: 'Add your first transaction to see insights', Hindi: 'इनसाइट देखने के लिए पहला लेन-देन जोड़ें', Hinglish: 'Insights ke liye pehla transaction add karein' },
+
+  // Period Labels
+  period_month: { English: 'Month', Hindi: 'महीना', Hinglish: 'Month' },
+  period_last_mo: { English: 'Last Mo', Hindi: 'पिछला', Hinglish: 'Last Mo' },
+  period_3mo: { English: '3 Mo', Hindi: '3 महीने', Hinglish: '3 Mo' },
+  period_year: { English: 'Year', Hindi: 'साल', Hinglish: 'Year' },
+  period_all: { English: 'All', Hindi: 'सभी', Hinglish: 'Sab' },
+
+  // Metrics Labels
+  net_savings: { English: 'NET SAVINGS', Hindi: 'शुद्ध बचत', Hinglish: 'NET SAVINGS' },
+  saved_pct: { English: 'Saved', Hindi: 'बचाया', Hinglish: 'Bachaya' },
+  daily_avg: { English: 'Daily Avg', Hindi: 'दैनिक औसत', Hinglish: 'Daily Avg' },
+  total_income: { English: 'Total Income', Hindi: 'कुल आय', Hinglish: 'Total Income' },
+  total_expense: { English: 'Total Expense', Hindi: 'कुल खर्च', Hinglish: 'Total Kharcha' },
+  net_balance: { English: 'Net Balance', Hindi: 'शुद्ध बैलेंस', Hinglish: 'Net Balance' },
+  transactions_count: { English: 'Transactions', Hindi: 'लेन-देन', Hinglish: 'Transactions' },
+
+  // Chart Titles
+  spending_wave: { English: 'Spending Wave', Hindi: 'खर्च तरंग', Hinglish: 'Spending Wave' },
+  daily_trend: { English: 'Daily trend & peak spending days', Hindi: 'दैनिक रुझान और अधिकतम खर्च के दिन', Hinglish: 'Daily trend aur peak spending days' },
+  cash_flow_trends: { English: 'Cash Flow Trends', Hindi: 'नकदी प्रवाह रुझान', Hinglish: 'Cash Flow Trends' },
+  income_vs_expense: { English: 'Income vs Expense comparison', Hindi: 'आय बनाम खर्च तुलना', Hinglish: 'Income vs Expense comparison' },
+  total_spent: { English: 'Total Spent', Hindi: 'कुल खर्च', Hinglish: 'Total Spent' },
+  total_income_label: { English: 'Total Income', Hindi: 'कुल आय', Hinglish: 'Total Income' },
+  tap_slice: { English: 'Tap slice to inspect', Hindi: 'विवरण के लिए टैप करें', Hinglish: 'Details ke liye tap karein' },
+
+  // Spending Velocity Card
+  spending_velocity: { English: 'Spending Velocity & Pace', Hindi: 'खर्च की गति और रफ्तार', Hinglish: 'Spending Velocity & Pace' },
+  current_vs_last: { English: 'Current Month vs Last Month', Hindi: 'इस महीने बनाम पिछले महीने', Hinglish: 'Current Month vs Last Month' },
+  comparative_trend: { English: 'Comparative Spending Trend', Hindi: 'तुलनात्मक खर्च रुझान', Hinglish: 'Comparative Spending Trend' },
+  projected_month: { English: 'Projected Month Total', Hindi: 'अनुमानित मासिक कुल', Hinglish: 'Projected Month Total' },
+  previous_period: { English: 'Previous Period', Hindi: 'पिछली अवधि', Hinglish: 'Previous Period' },
+  first_period: { English: 'First Period', Hindi: 'पहली अवधि', Hinglish: 'First Period' },
+  no_prior_data: { English: 'No prior data', Hindi: 'कोई पुराना डेटा नहीं', Hinglish: 'Koi purana data nahi' },
+  more_spending: { English: 'more', Hindi: 'ज़्यादा', Hinglish: 'zyada' },
+  less_spending: { English: 'less', Hindi: 'कम', Hinglish: 'kam' },
+
+  // 50/30/20 Rule
+  budget_rule: { English: '50 / 30 / 20 Budget Rule', Hindi: '50 / 30 / 20 बजट नियम', Hinglish: '50 / 30 / 20 Budget Rule' },
+  budget_rule_sub: { English: 'Needs (50%) • Wants (30%) • Savings (20%)', Hindi: 'ज़रूरतें (50%) • इच्छाएं (30%) • बचत (20%)', Hinglish: 'Needs (50%) • Wants (30%) • Savings (20%)' },
+  budget_balanced: { English: 'Balanced 🎯', Hindi: 'संतुलित 🎯', Hinglish: 'Balanced 🎯' },
+  budget_needs_review: { English: 'Needs Review ⚠️', Hindi: 'समीक्षा ज़रूरी ⚠️', Hinglish: 'Review Chahiye ⚠️' },
+  needs_label: { English: 'Needs (50%)', Hindi: 'ज़रूरतें (50%)', Hinglish: 'Needs (50%)' },
+  wants_label: { English: 'Wants (30%)', Hindi: 'इच्छाएं (30%)', Hinglish: 'Wants (30%)' },
+  savings_label: { English: 'Savings (20%)', Hindi: 'बचत (20%)', Hinglish: 'Savings (20%)' },
+  of_budget: { English: '% of budget', Hindi: '% बजट का', Hinglish: '% budget ka' },
+  saved_label: { English: '% saved', Hindi: '% बचाया', Hinglish: '% bachaya' },
+
+  // Financial Health Card
+  financial_vitality: { English: 'Financial Vitality', Hindi: 'वित्तीय स्वास्थ्य', Hinglish: 'Financial Vitality' },
+  ai_analysis: { English: 'AI Budget & Habits Analysis', Hindi: 'AI बजट और आदतें विश्लेषण', Hinglish: 'AI Budget & Habits Analysis' },
+
+  // Category & Chart Section
+  expense_breakdown: { English: 'Expense Breakdown', Hindi: 'खर्च विवरण', Hinglish: 'Expense Breakdown' },
+  income_breakdown: { English: 'Income Breakdown', Hindi: 'आय विवरण', Hinglish: 'Income Breakdown' },
+  top_categories: { English: 'Top Categories', Hindi: 'शीर्ष श्रेणियां', Hinglish: 'Top Categories' },
+  by_category: { English: 'Ranked by amount', Hindi: 'राशि के अनुसार', Hinglish: 'Amount ke hisaab se' },
+
+  // Day of Week & Weekend
+  day_pattern: { English: 'Day Spending Pattern', Hindi: 'दिनवार खर्च पैटर्न', Hinglish: 'Day Spending Pattern' },
+  peak_day: { English: 'Peak spending day', Hindi: 'सबसे ज़्यादा खर्च का दिन', Hinglish: 'Sabse zyada spending ka din' },
+  weekday_vs_weekend: { English: 'Weekday vs Weekend', Hindi: 'सप्ताहदिन बनाम सप्ताहांत', Hinglish: 'Weekday vs Weekend' },
+  weekdays_label: { English: 'Weekdays', Hindi: 'सप्ताहदिन', Hinglish: 'Weekdays' },
+  weekends_label: { English: 'Weekends', Hindi: 'वीकेंड', Hinglish: 'Weekends' },
+
+  // Payment Mode Split
+  payment_split: { English: 'Payment Mode Split', Hindi: 'भुगतान माध्यम विभाजन', Hinglish: 'Payment Mode Split' },
+  how_you_pay: { English: 'How you are spending', Hindi: 'आप कैसे खर्च कर रहे हैं', Hinglish: 'Aap kaise spend kar rahe hain' },
+
+  // Top Expenses
+  top_expenses_title: { English: 'Top 5 Largest Expenses', Hindi: 'शीर्ष 5 सबसे बड़े खर्च', Hinglish: 'Top 5 Largest Expenses' },
+  biggest_hits: { English: 'Your biggest spending transactions', Hindi: 'आपके सबसे बड़े खर्च', Hinglish: 'Aapke sabse bade kharche' },
+  no_expenses: { English: 'No expenses recorded', Hindi: 'कोई खर्च दर्ज नहीं', Hinglish: 'Koi kharcha record nahi' },
+
+  // Transaction Receipt
+  credit: { English: 'Credit', Hindi: 'क्रेडिट', Hinglish: 'Credit' },
+  debit: { English: 'Debit', Hindi: 'डेबिट', Hinglish: 'Debit' },
+  verified: { English: 'Verified', Hindi: 'सत्यापित', Hinglish: 'Verified' },
+  payment_mode_label: { English: 'Payment Mode', Hindi: 'भुगतान माध्यम', Hinglish: 'Payment Mode' },
+  reference_id: { English: 'Reference', Hindi: 'संदर्भ', Hinglish: 'Reference' },
+  timestamp: { English: 'Date & Time', Hindi: 'दिनांक और समय', Hinglish: 'Date & Time' },
+
+  // Add Transaction
+  type_expense: { English: 'Expense', Hindi: 'खर्च', Hinglish: 'Kharcha' },
+  type_income: { English: 'Income', Hindi: 'आय', Hinglish: 'Income' },
+  enter_amount: { English: 'Enter amount', Hindi: 'राशि दर्ज करें', Hinglish: 'Amount dalein' },
+  merchant_placeholder: { English: 'e.g. Zomato, Amazon, Salary...', Hindi: 'जैसे Zomato, Amazon, वेतन...', Hinglish: 'jaise Zomato, Amazon, Salary...' },
+  note_placeholder: { English: 'Optional note or description', Hindi: 'वैकल्पिक नोट या विवरण', Hinglish: 'Optional note ya description' },
+  today: { English: 'Today', Hindi: 'आज', Hinglish: 'Aaj' },
+  yesterday: { English: 'Yesterday', Hindi: 'कल', Hinglish: 'Kal' },
+
+  // Dashboard
+  good_morning: { English: 'Good morning', Hindi: 'सुप्रभात', Hinglish: 'Good morning' },
+  good_afternoon: { English: 'Good afternoon', Hindi: 'नमस्कार', Hinglish: 'Good afternoon' },
+  good_evening: { English: 'Good evening', Hindi: 'शुभ संध्या', Hinglish: 'Good evening' },
+  this_month_spend: { English: "This Month's Spend", Hindi: 'इस महीने का खर्च', Hinglish: 'Is Month ka Spend' },
+  quick_add: { English: 'Quick Add', Hindi: 'जल्दी जोड़ें', Hinglish: 'Quick Add' },
+  no_transactions_yet: { English: 'No transactions yet', Hindi: 'अभी कोई लेन-देन नहीं', Hinglish: 'Abhi koi transaction nahi' },
+  tap_to_add: { English: 'Tap + to add your first transaction', Hindi: 'पहला लेन-देन जोड़ने के लिए + दबाएं', Hinglish: '+ dabao apna pehla transaction add karne ke liye' },
 };
 
 export function useTranslation() {

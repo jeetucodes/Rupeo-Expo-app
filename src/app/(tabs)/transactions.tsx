@@ -318,12 +318,12 @@ export default function TransactionsScreen() {
     setDisplayLimit(20);
   }, [period, startDate, endDate, searchQuery, filterType, selectedCategory, minAmount, maxAmount, filterPaymentMode]);
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh = false) => {
     if (!user?.uid) return;
     try {
       const [txs, cats] = await Promise.all([
-        getAllTransactions(user.uid),
-        getUserCategories(user.uid),
+        getAllTransactions(user.uid, forceRefresh),
+        getUserCategories(user.uid, forceRefresh),
       ]);
       setAllTransactions(txs);
       setCategories(cats);
@@ -337,13 +337,13 @@ export default function TransactionsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      loadData(false);
     }, [user?.uid])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData();
+    loadData(true);
   };
 
   // Filter logic
@@ -651,6 +651,7 @@ export default function TransactionsScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={Platform.OS === 'android'}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

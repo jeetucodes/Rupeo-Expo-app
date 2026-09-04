@@ -8,6 +8,8 @@ export default function TabLayout() {
       tabBar={(props) => <CustomTabBar {...(props as any)} />}
       screenOptions={{
         headerShown: false,
+        lazy: true,
+        freezeOnBlur: true,
       }}
     >
       <Tabs.Screen

@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  RefreshControl,
   StatusBar,
   Image,
   TextInput,
@@ -19,6 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '@/context/AuthContext';
@@ -272,6 +274,405 @@ const brandLogoStyles = StyleSheet.create({
   },
 });
 
+export interface BrandCardTheme {
+  id: string;
+  name: string;
+  cardBg: string;
+  cardBorder: string;
+  accent: string;
+  innerBg: string;
+  innerBorder: string;
+  tagBg: string;
+  tagText: string;
+  badge: string;
+  badgeBg: string;
+  badgeText: string;
+  category: string;
+}
+
+export function resolveBrandTheme(providerId?: string, title?: string, category?: string): BrandCardTheme {
+  const normTitle = (title || '').toLowerCase().trim();
+  const id = (providerId || '').toLowerCase().trim();
+
+  // Jio - Clean Minimal Soft Light Blue
+  if (id === 'jio' || id === 'jiofiber' || normTitle.includes('jio')) {
+    return {
+      id: 'jio',
+      name: 'Jio',
+      cardBg: '#F0F7FF',        // Minimal ultra light blue
+      cardBorder: '#BAE6FD',    // Clean soft light blue border
+      accent: '#0A2885',        // Jio brand royal blue
+      innerBg: '#FFFFFF',
+      innerBorder: '#E0F2FE',
+      tagBg: '#E0F2FE',
+      tagText: '#0369A1',
+      badge: 'Jio',
+      badgeBg: '#0A2885',
+      badgeText: '#FFFFFF',
+      category: 'Subscriptions',
+    };
+  }
+
+  // Airtel - Clean Minimal Soft Light Red / Rose
+  if (id === 'airtel' || id === 'airtel_xstream' || normTitle.includes('airtel')) {
+    return {
+      id: 'airtel',
+      name: 'Airtel',
+      cardBg: '#FFF5F5',        // Minimal ultra light red / rose
+      cardBorder: '#FECDD3',    // Delicate soft rose border
+      accent: '#ED1C24',        // Airtel crimson red
+      innerBg: '#FFFFFF',
+      innerBorder: '#FFE4E6',
+      tagBg: '#FFE4E6',
+      tagText: '#BE123C',
+      badge: 'airtel',
+      badgeBg: '#ED1C24',
+      badgeText: '#FFFFFF',
+      category: 'Subscriptions',
+    };
+  }
+
+  // Vi (Vodafone Idea) - Soft Warm Vermilion / Light Blush
+  if (id === 'vi' || normTitle.includes('vi ') || normTitle.includes('vodafone') || normTitle.includes('idea')) {
+    return {
+      id: 'vi',
+      name: 'Vi',
+      cardBg: '#FFF6F5',
+      cardBorder: '#FED7AA',
+      accent: '#E60000',
+      innerBg: '#FFFFFF',
+      innerBorder: '#FFEDD5',
+      tagBg: '#FFEDD5',
+      tagText: '#C2410C',
+      badge: 'Vi',
+      badgeBg: '#E60000',
+      badgeText: '#FFFFFF',
+      category: 'Subscriptions',
+    };
+  }
+
+  // BSNL - Soft Cobalt Sky
+  if (id === 'bsnl' || normTitle.includes('bsnl')) {
+    return {
+      id: 'bsnl',
+      name: 'BSNL',
+      cardBg: '#F0F9FF',
+      cardBorder: '#BAE6FD',
+      accent: '#005BA6',
+      innerBg: '#FFFFFF',
+      innerBorder: '#E0F2FE',
+      tagBg: '#E0F2FE',
+      tagText: '#0284C7',
+      badge: 'BSNL',
+      badgeBg: '#005BA6',
+      badgeText: '#FFFFFF',
+      category: 'Subscriptions',
+    };
+  }
+
+  // Electricity / Bijli - Soft Warm Golden Amber
+  if (id === 'electricity' || normTitle.includes('electr') || normTitle.includes('bijli') || normTitle.includes('power') || normTitle.includes('light bill')) {
+    return {
+      id: 'electricity',
+      name: 'Electricity Bill',
+      cardBg: '#FFFDF0',        // Minimal soft warm amber
+      cardBorder: '#FDE68A',
+      accent: '#D97706',
+      innerBg: '#FFFFFF',
+      innerBorder: '#FEF3C7',
+      tagBg: '#FEF3C7',
+      tagText: '#B45309',
+      badge: 'Bijli',
+      badgeBg: '#F59E0B',
+      badgeText: '#FFFFFF',
+      category: 'Bills',
+    };
+  }
+
+  // LPG Cylinder / Gas - Soft Light Orange
+  if (id === 'gas' || normTitle.includes('gas') || normTitle.includes('cylinder') || normTitle.includes('lpg')) {
+    return {
+      id: 'gas',
+      name: 'LPG Gas Cylinder',
+      cardBg: '#FFF7ED',        // Minimal soft light orange
+      cardBorder: '#FED7AA',
+      accent: '#EA580C',
+      innerBg: '#FFFFFF',
+      innerBorder: '#FFEDD5',
+      tagBg: '#FFEDD5',
+      tagText: '#C2410C',
+      badge: 'Gas',
+      badgeBg: '#F97316',
+      badgeText: '#FFFFFF',
+      category: 'Bills',
+    };
+  }
+
+  // Water Supply - Soft Aqua Cyan
+  if (id === 'water' || normTitle.includes('water') || normTitle.includes('paani') || normTitle.includes('jal')) {
+    return {
+      id: 'water',
+      name: 'Water Supply',
+      cardBg: '#ECFEFF',        // Minimal soft aqua cyan
+      cardBorder: '#A5F3FC',
+      accent: '#0891B2',
+      innerBg: '#FFFFFF',
+      innerBorder: '#CFFAFE',
+      tagBg: '#CFFAFE',
+      tagText: '#0E7490',
+      badge: 'Water',
+      badgeBg: '#06B6D4',
+      badgeText: '#FFFFFF',
+      category: 'Bills',
+    };
+  }
+
+  // Room / Flat Rent - Soft Mint Emerald
+  if (id === 'rent' || normTitle.includes('rent') || normTitle.includes('room') || normTitle.includes('flat') || normTitle.includes('pg')) {
+    return {
+      id: 'rent',
+      name: 'Room / Flat Rent',
+      cardBg: '#F0FDF4',        // Minimal soft emerald
+      cardBorder: '#BBF7D0',
+      accent: '#059669',
+      innerBg: '#FFFFFF',
+      innerBorder: '#DCFCE7',
+      tagBg: '#DCFCE7',
+      tagText: '#15803D',
+      badge: 'Flat Rent',
+      badgeBg: '#10B981',
+      badgeText: '#FFFFFF',
+      category: 'Rent',
+    };
+  }
+
+  // Maid / Cook Salary - Soft Lavender
+  if (id === 'maid' || normTitle.includes('maid') || normTitle.includes('kamwali') || normTitle.includes('salary') || normTitle.includes('cook')) {
+    return {
+      id: 'maid',
+      name: 'Maid Salary',
+      cardBg: '#F5F3FF',        // Minimal soft lavender
+      cardBorder: '#DDD6FE',
+      accent: '#7C3AED',
+      innerBg: '#FFFFFF',
+      innerBorder: '#EDE9FE',
+      tagBg: '#EDE9FE',
+      tagText: '#6D28D9',
+      badge: 'House Maid',
+      badgeBg: '#8B5CF6',
+      badgeText: '#FFFFFF',
+      category: 'Bills',
+    };
+  }
+
+  // Mess / Tiffin - Soft Light Peach
+  if (id === 'tiffin' || normTitle.includes('tiffin') || normTitle.includes('mess') || normTitle.includes('dabba') || normTitle.includes('khana')) {
+    return {
+      id: 'tiffin',
+      name: 'Mess / Tiffin',
+      cardBg: '#FFF7ED',        // Minimal soft peach
+      cardBorder: '#FED7AA',
+      accent: '#EA580C',
+      innerBg: '#FFFFFF',
+      innerBorder: '#FFEDD5',
+      tagBg: '#FFEDD5',
+      tagText: '#C2410C',
+      badge: 'Mess / Tiffin',
+      badgeBg: '#F97316',
+      badgeText: '#FFFFFF',
+      category: 'Food',
+    };
+  }
+
+  // Milk Delivery - Soft Azure
+  if (id === 'milk' || normTitle.includes('milk') || normTitle.includes('dairy') || normTitle.includes('doodh')) {
+    return {
+      id: 'milk',
+      name: 'Milk Delivery',
+      cardBg: '#F0F9FF',        // Minimal soft azure
+      cardBorder: '#BAE6FD',
+      accent: '#0284C7',
+      innerBg: '#FFFFFF',
+      innerBorder: '#E0F2FE',
+      tagBg: '#E0F2FE',
+      tagText: '#0369A1',
+      badge: 'Milk / Dairy',
+      badgeBg: '#0284C7',
+      badgeText: '#FFFFFF',
+      category: 'Groceries',
+    };
+  }
+
+  // Netflix - Soft Minimal Ruby
+  if (id === 'netflix' || normTitle.includes('netflix')) {
+    return {
+      id: 'netflix',
+      name: 'Netflix',
+      cardBg: '#FFF5F5',
+      cardBorder: '#FECDD3',
+      accent: '#E50914',
+      innerBg: '#FFFFFF',
+      innerBorder: '#FFE4E6',
+      tagBg: '#FFE4E6',
+      tagText: '#BE123C',
+      badge: 'Netflix',
+      badgeBg: '#000000',
+      badgeText: '#E50914',
+      category: 'Subscriptions',
+    };
+  }
+
+  // Prime Video
+  if (id === 'prime' || normTitle.includes('prime') || normTitle.includes('amazon')) {
+    return {
+      id: 'prime',
+      name: 'Amazon Prime',
+      cardBg: '#F0F9FF',
+      cardBorder: '#BAE6FD',
+      accent: '#00A8E1',
+      innerBg: '#FFFFFF',
+      innerBorder: '#E0F2FE',
+      tagBg: '#E0F2FE',
+      tagText: '#0369A1',
+      badge: 'Prime Video',
+      badgeBg: '#00A8E1',
+      badgeText: '#FFFFFF',
+      category: 'Subscriptions',
+    };
+  }
+
+  // Disney+ Hotstar
+  if (id === 'hotstar' || normTitle.includes('hotstar') || normTitle.includes('disney')) {
+    return {
+      id: 'hotstar',
+      name: 'Disney+ Hotstar',
+      cardBg: '#F1F5F9',
+      cardBorder: '#CBD5E1',
+      accent: '#0C1E3C',
+      innerBg: '#FFFFFF',
+      innerBorder: '#E2E8F0',
+      tagBg: '#E2E8F0',
+      tagText: '#0C1E3C',
+      badge: 'Hotstar',
+      badgeBg: '#0C1E3C',
+      badgeText: '#FFD700',
+      category: 'Subscriptions',
+    };
+  }
+
+  // Spotify
+  if (id === 'spotify' || normTitle.includes('spotify')) {
+    return {
+      id: 'spotify',
+      name: 'Spotify',
+      cardBg: '#F0FDF4',
+      cardBorder: '#BBF7D0',
+      accent: '#1DB954',
+      innerBg: '#FFFFFF',
+      innerBorder: '#DCFCE7',
+      tagBg: '#DCFCE7',
+      tagText: '#15803D',
+      badge: 'Spotify',
+      badgeBg: '#1DB954',
+      badgeText: '#FFFFFF',
+      category: 'Subscriptions',
+    };
+  }
+
+  // YouTube Premium
+  if (id === 'youtube' || normTitle.includes('youtube')) {
+    return {
+      id: 'youtube',
+      name: 'YouTube Premium',
+      cardBg: '#FFF1F2',
+      cardBorder: '#FECDD3',
+      accent: '#FF0000',
+      innerBg: '#FFFFFF',
+      innerBorder: '#FFE4E6',
+      tagBg: '#FFE4E6',
+      tagText: '#BE123C',
+      badge: 'YouTube',
+      badgeBg: '#FF0000',
+      badgeText: '#FFFFFF',
+      category: 'Subscriptions',
+    };
+  }
+
+  // Loan / Credit EMI
+  if (id === 'emi' || normTitle.includes('emi') || normTitle.includes('loan') || normTitle.includes('credit')) {
+    return {
+      id: 'emi',
+      name: 'Loan / Credit EMI',
+      cardBg: '#FFF1F2',
+      cardBorder: '#FECDD3',
+      accent: '#E11D48',
+      innerBg: '#FFFFFF',
+      innerBorder: '#FFE4E6',
+      tagBg: '#FFE4E6',
+      tagText: '#BE123C',
+      badge: 'Loan EMI',
+      badgeBg: '#E11D48',
+      badgeText: '#FFFFFF',
+      category: 'EMI',
+    };
+  }
+
+  // Gym / Fitness
+  if (id === 'gym' || normTitle.includes('gym') || normTitle.includes('fitness')) {
+    return {
+      id: 'gym',
+      name: 'Gym / Fitness',
+      cardBg: '#F0FDF4',
+      cardBorder: '#BBF7D0',
+      accent: '#10B981',
+      innerBg: '#FFFFFF',
+      innerBorder: '#DCFCE7',
+      tagBg: '#DCFCE7',
+      tagText: '#15803D',
+      badge: 'Gym',
+      badgeBg: '#10B981',
+      badgeText: '#FFFFFF',
+      category: 'Others',
+    };
+  }
+
+  // WiFi / Broadband / ACT Fibernet
+  if (id === 'act' || normTitle.includes('wifi') || normTitle.includes('fiber') || normTitle.includes('broadband')) {
+    return {
+      id: 'wifi',
+      name: 'WiFi / Broadband',
+      cardBg: '#F8FAFC',
+      cardBorder: '#CBD5E1',
+      accent: '#475569',
+      innerBg: '#FFFFFF',
+      innerBorder: '#F1F5F9',
+      tagBg: '#F1F5F9',
+      tagText: '#334155',
+      badge: 'WiFi',
+      badgeBg: '#475569',
+      badgeText: '#FFFFFF',
+      category: 'Bills',
+    };
+  }
+
+  // Default Custom / Others
+  return {
+    id: 'custom',
+    name: title || 'Bill Reminder',
+    cardBg: '#F8FAFC',
+    cardBorder: '#E2E8F0',
+    accent: '#6366F1',
+    innerBg: '#FFFFFF',
+    innerBorder: '#F1F5F9',
+    tagBg: '#EEF2FF',
+    tagText: '#4F46E5',
+    badge: category || 'Bill',
+    badgeBg: '#6366F1',
+    badgeText: '#FFFFFF',
+    category: category || 'Bills',
+  };
+}
+
 function getDueStatus(dueDateStr: string) {
   if (!dueDateStr) return { label: 'Upcoming', color: '#10B981', bg: '#D1FAE5', daysLeft: 999 };
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -299,9 +700,9 @@ export default function RemindersScreen() {
   const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
   const todayStr = useMemo(() => getLocalDateString(), []);
-
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Add / Edit Modal state
   const [showModal, setShowModal] = useState(false);
@@ -330,36 +731,42 @@ export default function RemindersScreen() {
   const [paymentProof, setPaymentProof] = useState<string | null>(null);
   const [isPaying, setIsPaying] = useState(false);
 
-  // Delete confirm state
+  // Custom Delete confirmation dialog state
   const [deleteBill, setDeleteBill] = useState<RecurringBill | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // FAB pulse animation
+  // FAB subtle pulse
   const fabPulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(fabPulse, { toValue: 1.08, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(fabPulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(fabPulse, { toValue: 1.08, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(fabPulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ])
     );
     loop.start();
     return () => loop.stop();
   }, [fabPulse]);
 
-  const loadBills = useCallback(async () => {
+  const loadBills = useCallback(async (forceRefresh = false) => {
     if (!user?.uid) return;
     try {
-      const list = await getRecurringBills(user.uid);
+      const list = await getRecurringBills(user.uid, forceRefresh);
       setBills(list);
     } catch (e) {
       console.warn('Failed to load bills:', e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [user?.uid]);
 
-  useFocusEffect(useCallback(() => { loadBills(); }, [loadBills]));
+  useFocusEffect(useCallback(() => { loadBills(false); }, [loadBills]));
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadBills(true);
+  };
 
   // Live calculation preview
   const livePreviewData = useMemo(() => {
@@ -474,18 +881,6 @@ export default function RemindersScreen() {
 
   async function handleSave() {
     if (!user?.uid) return;
-
-    // Enforce 3 bill limit for free users
-    if (!isPremium && !editingBill && bills.length >= 3) {
-      setShowModal(false);
-      Toast.show({
-        type: 'error',
-        text1: '⚡ Free Bill Limit Reached (3/3)',
-        text2: 'Upgrade to Rupeo Pro for unlimited recurring bill alerts!',
-      });
-      router.push('/premium');
-      return;
-    }
 
     if (!billTitle.trim()) {
       Toast.show({ type: 'error', text1: 'Required', text2: 'Please enter a name for the reminder' });
@@ -613,42 +1008,99 @@ export default function RemindersScreen() {
 
   const BillCard = ({ bill }: { bill: RecurringBill }) => {
     const status = getDueStatus(bill.nextDueDate);
-    const meta = BRAND_PROVIDERS.find(p => p.id === bill.provider) || { color: '#6366F1', category: 'Bills' };
+    const theme = resolveBrandTheme(bill.provider, bill.title, bill.category);
+
+    // Continuous smooth ambient diagonal gleam across card
+    const shimmerAnim = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(shimmerAnim, {
+            toValue: 1,
+            duration: 3000,
+            easing: Easing.bezier(0.4, 0, 0.2, 1),
+            useNativeDriver: true,
+          }),
+          Animated.delay(2200),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }, [shimmerAnim]);
 
     return (
-      <View style={styles.billCard}>
+      <View style={[styles.billCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
+        {/* Subtle Animated Shimmer Beam in Background */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.billCardShimmer,
+            {
+              transform: [
+                {
+                  translateX: shimmerAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-160, 420],
+                  }),
+                },
+                { rotate: '25deg' },
+              ],
+            },
+          ]}
+        >
+          <LinearGradient
+            colors={[
+              'rgba(255, 255, 255, 0)',
+              'rgba(255, 255, 255, 0.35)',
+              'rgba(255, 255, 255, 0.75)',
+              'rgba(255, 255, 255, 0)',
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{ width: 95, height: '260%' }}
+          />
+        </Animated.View>
+
         {/* Top Header Row */}
         <View style={styles.billCardHeader}>
           <View style={styles.billBrandRow}>
-            <BrandLogo id={bill.provider || 'custom'} color={meta.color} size={42} />
+            <BrandLogo id={theme.id} color={theme.accent} size={42} />
             <View style={styles.billTitleCol}>
               <Text style={styles.billTitle} numberOfLines={1}>{bill.title}</Text>
               <View style={styles.billTagRow}>
-                <View style={[styles.categoryTag, { backgroundColor: meta.color + '15' }]}>
-                  <Text style={[styles.categoryTagText, { color: meta.color }]}>{bill.category || meta.category || 'Bills'}</Text>
+                <View style={[styles.categoryTag, { backgroundColor: theme.tagBg }]}>
+                  <Text style={[styles.categoryTagText, { color: theme.tagText }]}>{bill.category || theme.category}</Text>
                 </View>
-                <Text style={styles.cycleText}>
-                  {bill.type === 'monthly_date'
-                    ? `Monthly (${bill.dueDay || 1}th)`
-                    : `${bill.cycleDays || 28} Days Pack`}
-                </Text>
+                <View style={[styles.cycleBadge, { borderColor: theme.cardBorder }]}>
+                  <Ionicons name="repeat" size={10} color="#64748B" style={{ marginRight: 3 }} />
+                  <Text style={styles.cycleText}>
+                    {bill.type === 'monthly_date'
+                      ? `Monthly (${bill.dueDay || 1}th)`
+                      : `${bill.cycleDays || 28} Days Pack`}
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
 
-          <View style={[styles.duePill, { backgroundColor: status.bg }]}>
-            <Text style={[styles.duePillText, { color: status.color }]}>{status.label}</Text>
+          <View style={[styles.duePill, { backgroundColor: status.daysLeft <= 3 ? status.bg : theme.tagBg }]}>
+            {status.daysLeft <= 3 && (
+              <View style={[styles.duePillDot, { backgroundColor: status.color }]} />
+            )}
+            <Text style={[styles.duePillText, { color: status.daysLeft <= 3 ? status.color : theme.tagText }]}>
+              {status.label}
+            </Text>
           </View>
         </View>
 
-        {/* Divider */}
-        <View style={styles.cardDivider} />
+        {/* Subtle Divider */}
+        <View style={[styles.cardDivider, { backgroundColor: theme.cardBorder + '80' }]} />
 
-        {/* Amount & Due Date Info */}
-        <View style={styles.billDetailsRow}>
+        {/* Amount & Due Date Info - Elevated White Box */}
+        <View style={[styles.billDetailsRow, { backgroundColor: theme.innerBg, borderColor: theme.innerBorder, borderWidth: 1 }]}>
           <View style={styles.billDueDateWrap}>
-            <View style={styles.dueDateIconCircle}>
-              <Ionicons name="calendar" size={14} color="#6366F1" />
+            <View style={[styles.dueDateIconCircle, { backgroundColor: theme.tagBg }]}>
+              <Ionicons name="calendar" size={14} color={theme.accent} />
             </View>
             <View>
               <Text style={styles.dueDateLabel}>Next Due Date</Text>
@@ -659,7 +1111,7 @@ export default function RemindersScreen() {
           </View>
 
           <View style={styles.billAmountCol}>
-            <Text style={styles.billAmountLabel}>Amount</Text>
+            <Text style={styles.billAmountLabel}>Amount Due</Text>
             <Text style={styles.billAmountValue}>₹{bill.amount.toLocaleString('en-IN')}</Text>
           </View>
         </View>
@@ -677,7 +1129,7 @@ export default function RemindersScreen() {
 
           <View style={styles.secondaryActions}>
             <TouchableOpacity
-              style={styles.editBtn}
+              style={[styles.editBtn, { backgroundColor: '#FFFFFF', borderColor: theme.cardBorder }]}
               onPress={() => openEditModal(bill)}
               activeOpacity={0.7}
               accessibilityRole="button"
@@ -687,7 +1139,7 @@ export default function RemindersScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.deleteBtn}
+              style={[styles.deleteBtn, { backgroundColor: '#FFFFFF', borderColor: theme.cardBorder }]}
               onPress={() => setDeleteBill(bill)}
               activeOpacity={0.7}
               accessibilityLabel={`Delete ${bill.title}`}
@@ -764,7 +1216,20 @@ export default function RemindersScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={Platform.OS === 'android'}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#1C1C1E']}
+              tintColor="#1C1C1E"
+            />
+          }
+        >
           <SectionHead title={t('overdue')} count={overdueBills.length} icon="alert-circle-outline" color="#EF4444" />
           {overdueBills.map(b => <BillCard key={b.id} bill={b} />)}
           <SectionHead title={t('due_soon')} count={urgentBills.length} icon="alarm-outline" color="#F59E0B" />
@@ -851,29 +1316,34 @@ export default function RemindersScreen() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cleanProviderScroll}>
                 {activeProviders.map(p => {
                   const isSel = selectedProviderId === p.id;
+                  const pTheme = resolveBrandTheme(p.id, p.name, p.category);
                   return (
                     <TouchableOpacity
                       key={p.id}
                       style={[
                         styles.cleanProviderCard,
+                        {
+                          backgroundColor: isSel ? pTheme.tagBg : pTheme.cardBg,
+                          borderColor: isSel ? pTheme.accent : pTheme.cardBorder,
+                        },
                         isSel && styles.cleanProviderCardActive,
-                        isSel && { borderColor: p.color, backgroundColor: p.color + '0C' }
                       ]}
                       onPress={() => handleSelectProvider(p)}
                       activeOpacity={0.75}
                     >
-                      <BrandLogo id={p.id} color={p.color} size={32} />
+                      <BrandLogo id={p.id} color={pTheme.accent} size={32} />
                       <Text
                         style={[
                           styles.cleanProviderText,
-                          isSel && { color: p.color, fontWeight: '800' }
+                          { color: isSel ? pTheme.accent : '#475569' },
+                          isSel && { fontWeight: '800' },
                         ]}
                         numberOfLines={1}
                       >
                         {p.badge}
                       </Text>
                       {isSel && (
-                        <View style={[styles.cleanCheckCircle, { backgroundColor: p.color }]}>
+                        <View style={[styles.cleanCheckCircle, { backgroundColor: pTheme.accent }]}>
                           <Ionicons name="checkmark" size={10} color="#FFFFFF" />
                         </View>
                       )}
@@ -1318,13 +1788,24 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 16,
     marginBottom: 14,
-    borderWidth: 1,
+    borderWidth: 1.2,
     borderColor: '#E2E8F0',
     shadowColor: '#0F172A',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 10,
+    elevation: 2,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  cycleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   billCardHeader: {
     flexDirection: 'row',
@@ -1474,8 +1955,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  duePill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  duePill: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  duePillDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
   duePillText: { fontSize: 11, fontWeight: '800' },
+  billCardShimmer: {
+    position: 'absolute',
+    top: -20,
+    left: 0,
+    bottom: -20,
+    width: 95,
+  },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 14 },
   emptyIcon: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },

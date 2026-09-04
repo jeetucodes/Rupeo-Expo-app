@@ -511,26 +511,24 @@ export default function SettingsScreen() {
             accessibilityLabel="Edit profile"
           >
             <View style={styles.profileCard}>
-              <View style={{ marginBottom: 14 }}>
+              <View style={{ marginBottom: 12 }}>
                 <VipAvatar
                   photoURL={user.photoURL}
                   name={user.displayName}
                   email={user.email}
-                  isPremium={isPremium}
-                  size={96}
-                  badgeType={isPremium ? undefined : 'edit'}
+                  size={92}
+                  showBadge={true}
+                  badgeType="edit"
                 />
               </View>
 
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.userName}>{user.displayName || 'Rupeo User'}</Text>
-                {isPremium && (
-                  <View style={styles.vipPill}>
-                    <Text style={styles.vipPillText}>VIP 👑</Text>
-                  </View>
-                )}
-              </View>
+              <Text style={styles.userName}>{user.displayName || 'Rupeo User'}</Text>
               <Text style={styles.userEmail}>{user.email}</Text>
+
+              <View style={styles.editProfilePill}>
+                <Ionicons name="pencil" size={12} color="#3B82F6" style={{ marginRight: 4 }} />
+                <Text style={styles.editProfilePillText}>Edit Profile</Text>
+              </View>
 
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
@@ -541,132 +539,25 @@ export default function SettingsScreen() {
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={[styles.statValue, isPremium && { color: '#F59E0B' }]}>
-                    {isPremium ? 'PRO VIP 👑' : t('active')}
+                  <Text style={styles.statValue}>
+                    {curr} {Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}
                   </Text>
-                  <Text style={styles.statLabel}>{t('status')}</Text>
+                  <Text style={styles.statLabel}>Starting Bal</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={[styles.statValue, { color: '#10B981' }]}>
+                    Active
+                  </Text>
+                  <Text style={styles.statLabel}>Account</Text>
                 </View>
               </View>
             </View>
           </TouchableOpacity>
 
-          {/* RUPEO PRO / VIP STATUS BANNER */}
-          <TouchableOpacity
-            style={styles.proBannerCardWrapper}
-            onPress={() => router.push('/premium')}
-            activeOpacity={0.88}
-          >
-            <LinearGradient
-              colors={
-                isPremium
-                  ? ['#1A2438', '#0F1626']
-                  : ['#2A1D08', '#141008']
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[
-                styles.proBannerCard,
-                isPremium ? styles.proBannerCardVip : styles.proBannerCardFree,
-              ]}
-            >
-              <View style={styles.proBannerLeft}>
-                <View
-                  style={[
-                    styles.proCrownCircle,
-                    isPremium ? styles.proCrownCircleVip : styles.proCrownCircleFree,
-                  ]}
-                >
-                  <ExpoImage
-                    source={{
-                      uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Crown.png',
-                    }}
-                    style={{ width: 28, height: 28 }}
-                    contentFit="contain"
-                  />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={[styles.proBannerTitle, isPremium && { color: '#FFD740' }]}>
-                      {isPremium ? 'Rupeo VIP Active' : 'Rupeo Pro VIP'}
-                    </Text>
-                    {isPremium ? (
-                      <View style={styles.proActiveBadge}>
-                        <Ionicons name="checkmark-circle" size={11} color="#10B981" style={{ marginRight: 3 }} />
-                        <Text style={styles.proActiveBadgeText}>
-                          {settings?.premiumPlan === 'lifetime' ? 'LIFETIME' : 'ACTIVE'}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View style={styles.proAdFreeBadge}>
-                        <Text style={styles.proAdFreeBadgeText}>100% AD-FREE</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.proBannerSub}>
-                    {isPremium
-                      ? settings?.premiumPlan === 'lifetime'
-                        ? 'Unlimited Lifetime VIP • Zero Ads Forever'
-                        : `${getPlanNameDisplay(settings?.premiumPlan)} • Tap to Upgrade Plan ⚡`
-                      : 'Remove all ads, unlock deep analytics & unlimited bills'}
-                  </Text>
-                </View>
-              </View>
-
-              <View
-                style={[
-                  styles.proActionPill,
-                  isPremium ? styles.proActionPillVip : styles.proActionPillFree,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.proActionPillText,
-                    isPremium ? styles.proActionPillTextVip : styles.proActionPillTextFree,
-                  ]}
-                >
-                  {isPremium ? (settings?.premiumPlan === 'lifetime' ? 'VIP' : 'Upgrade') : 'Get Pro'}
-                </Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={12}
-                  color={isPremium ? '#FFD740' : '#07090E'}
-                />
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          {isPremium && (
-            <TouchableOpacity
-              style={{
-                alignSelf: 'center',
-                marginTop: -6,
-                marginBottom: 14,
-                paddingVertical: 6,
-                paddingHorizontal: 14,
-                backgroundColor: '#F1F5F9',
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: '#E2E8F0',
-              }}
-              onPress={async () => {
-                await downgradeFromPremium();
-                Toast.show({
-                  type: 'info',
-                  text1: 'Switched to Free Account',
-                  text2: 'AdMob ads are now enabled on Dashboard & Add Expense.',
-                });
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#475569' }}>
-                🧪 Test Ads: Switch to Free Account
-              </Text>
-            </TouchableOpacity>
-          )}
-
           {/* Planning & Categories */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Planning & Categories</Text>
+            <Text style={styles.sectionTitle}>Planning & Expenses</Text>
             <View style={styles.infoCard}>
               <SettingsRow
                 icon="pie-chart-outline"
@@ -675,6 +566,15 @@ export default function SettingsScreen() {
                 label={t('budget_goals')}
                 value={t('budget_goals_desc')}
                 onPress={() => router.push('/budget')}
+              />
+              <View style={styles.infoDivider} />
+              <SettingsRow
+                icon="notifications-outline"
+                iconBg="#EEF2FF"
+                iconColor="#4F46E5"
+                label="Bill Reminders & Alerts"
+                value="Recurring subscriptions & payment alerts"
+                onPress={() => router.push('/reminders')}
               />
               <View style={styles.infoDivider} />
               <SettingsRow
@@ -690,7 +590,7 @@ export default function SettingsScreen() {
                 icon="wallet-outline"
                 iconBg="#FEF3C7"
                 iconColor="#B45309"
-                label="Update Total Balance"
+                label="Update Starting Balance"
                 value={`Current: ${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`}
                 onPress={openStartingBalanceEditor}
               />
@@ -1063,37 +963,137 @@ export default function SettingsScreen() {
           </View>
           <ScrollView style={styles.fullPageContent} showsVerticalScrollIndicator={false}>
             {legalDoc === 'privacy' ? (
-              <Text style={styles.legalText}>
+              <View style={{ paddingBottom: 50 }}>
                 <Text style={styles.legalTextBold}>Rupeo Privacy Policy</Text>
-                {'\n'}Last Updated: Aug 2026{'\n\n'}
+                <Text style={styles.legalDateText}>Effective Date: September 2026 | Version 2.0</Text>
                 
-                <Text style={styles.legalTextSemibold}>1. Information We Collect:</Text> When you register, we collect your email, display name, and profile picture provided by your authentication provider. We also securely store the financial data you input, including transaction amounts, categories, and payment modes.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>2. How We Use Your Data:</Text> Your data is used exclusively to provide the Rupeo service—syncing your finances across devices, generating analytics, and providing AI-driven insights. Rupeo does not sell, rent, or trade your personal or financial data to third parties.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>3. AI Features & Third-Party Processing:</Text> When you use Rupeo's AI features (e.g., smart categorization, financial chat), your input may be securely processed by our authorized LLM partners. Only the context necessary for the query is shared, and it is strictly isolated from model training.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>4. Data Security & Storage:</Text> All data is encrypted in transit and at rest using industry-standard protocols via Firebase Cloud Infrastructure. The app also caches data locally on your device for offline access.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>5. Data Retention & Your Rights:</Text> You own your data. You may export your data at any time via the Export Backup tool. You can also permanently delete your account and all associated data instantly using the "Delete My Account" button in the Settings menu. Upon deletion, data is irreversibly wiped from our active servers.
-              </Text>
-            ) : (
-              <Text style={styles.legalText}>
-                <Text style={styles.legalTextBold}>Rupeo Terms & Conditions</Text>
-                {'\n'}Last Updated: Aug 2026{'\n\n'}
+                <Text style={styles.legalIntroText}>
+                  Innovatex Labs ("we", "us", or "our") is committed to protecting your privacy. This Privacy Policy explains how our personal finance application Rupeo ("App", package: com.innovatexlabs.paisewaise) collects, uses, protects, and handles your personal and financial information.{'\n\n'}
+                </Text>
 
-                <Text style={styles.legalTextSemibold}>1. Acceptance of Terms:</Text> By creating an account or using Rupeo, you agree to these terms. If you do not agree, please do not use the application.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>2. App Usage & Restrictions:</Text> Rupeo is intended for personal and non-commercial financial tracking. You agree not to misuse the app, attempt to breach our security, or use the service for fraudulent activities.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>3. Financial Disclaimer:</Text> Rupeo is a tracking tool, not a financial advisor. Any insights, AI summaries, or metrics provided by the app are for informational purposes only. We are not liable for any financial decisions, losses, or damages resulting from the use of this app.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>4. Service Availability & AI Limits:</Text> While we strive for 100% uptime, Rupeo is provided "as is". AI features may be subject to fair-use limits. We reserve the right to throttle or disable features to prevent abuse or service degradation.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>5. Account Termination:</Text> We reserve the right to suspend or terminate your account at any time without notice if we suspect a violation of these Terms.{'\n\n'}
-                
-                <Text style={styles.legalTextSemibold}>6. Modifications:</Text> We may update these Terms periodically. Continued use of the app constitutes acceptance of the new Terms.
-              </Text>
+                <Text style={styles.legalSectionHeading}>1. Information We Collect</Text>
+                <Text style={styles.legalText}>
+                  • <Text style={styles.legalTextSemibold}>Account & Identity:</Text> When you register using Email/Password or Google Sign-In, we collect your display name, email address, profile picture URL, and Firebase Auth UID.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Financial Transaction Records:</Text> Income and expense amounts, transaction timestamps, payment modes (UPI, Cash, Debit/Credit Card, Net Banking), category allocations, and optional notes/memos.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Receipts & Bill Images:</Text> Physical receipt photos, invoices, and payment proof screenshots that you voluntarily take using the in-app camera or select from your photo library.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Recurring Bill Reminders:</Text> Bill provider names (e.g. Jio, Airtel, Vi, BSNL, Rent, Tiffin/Mess, Milk, Maid, Electricity, EMI), bill amounts, billing cycles, and next due dates.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Device Diagnostics:</Text> Device model, OS version, push notification tokens (via expo-notifications), and anonymous error telemetry to ensure application stability.{'\n\n'}
+                  <Text style={styles.legalHighlightText}>What We DO NOT Collect:</Text> Rupeo never collects or stores your bank login passwords, net banking credentials, ATM PINs, UPI PINs, or card CVV numbers. Rupeo does not link directly to bank APIs and does not hold user funds.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>2. Device Permissions We Request</Text>
+                <Text style={styles.legalText}>
+                  • <Text style={styles.legalTextSemibold}>Camera (CAMERA):</Text> Used solely to allow you to photograph bills, receipts, or payment confirmations directly within the app.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Photos & Storage (READ_MEDIA_IMAGES):</Text> Used to select receipt images from your photo gallery and save exported receipts, PDF summaries, and CSV spreadsheets to your device.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Notifications (POST_NOTIFICATIONS):</Text> Used to deliver timely alerts for upcoming bill due dates, recharge expirations, and budget status.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>3. How We Use Your Data</Text>
+                <Text style={styles.legalText}>
+                  • To manage, display, and securely synchronize your personal accounts and transactions across devices.{'\n'}
+                  • To calculate financial statistics, category breakdowns, and cash flow trends.{'\n'}
+                  • To generate authentic scannable ISO/IEC 16388 Code 39 barcode transaction receipts for personal verification.{'\n'}
+                  • To provide AI-powered financial summaries and smart spending recommendations.{'\n'}
+                  • To handle optional VIP / Pro subscription features.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>No Sale of Data:</Text> We do not sell, rent, or trade your personal or financial data to third-party advertisers or data brokers.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>4. Third-Party Services</Text>
+                <Text style={styles.legalText}>
+                  We integrate trusted third-party services that adhere to stringent privacy and security standards:{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Google Firebase (Google LLC):</Text> Secure authentication, Cloud Firestore encrypted database, and cloud infrastructure.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Google Mobile Ads (AdMob):</Text> Displays non-intrusive banner and video ads for free-tier users in accordance with Google Play Developer policies.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Cloudinary:</Text> High-speed encrypted media storage and delivery for attached bill photos.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Google Play Billing (react-native-iap):</Text> Securely processes in-app VIP/Pro subscriptions without Rupeo accessing credit card details.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>5. Data Security & Encryption</Text>
+                <Text style={styles.legalText}>
+                  • All network communication uses end-to-end TLS 1.3 / HTTPS encryption.{'\n'}
+                  • Firestore security rules enforce strict user-level access isolation — only your authenticated account can access your records.{'\n'}
+                  • Offline local cached data is protected within your device's sandboxed storage.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>6. Your Rights: Export & Permanent Data Deletion</Text>
+                <Text style={styles.legalText}>
+                  • <Text style={styles.legalTextSemibold}>Data Ownership:</Text> You retain 100% ownership of your data.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Data Export:</Text> You can export all your records anytime in CSV, PDF, or JSON backup formats.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Account Deletion:</Text> You have the right to permanently erase your account at any time via Settings {'>'} "Delete My Account". This action permanently and irreversibly purges your profile, all transactions, recurring bills, notifications, and uploaded photos from our active servers.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>7. Children's Privacy</Text>
+                <Text style={styles.legalText}>
+                  Rupeo is not intended for use by children under 13 years of age. We do not knowingly collect personal data from children.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>8. Contact Us</Text>
+                <Text style={styles.legalText}>
+                  For any privacy questions or data requests, please contact:{'\n'}
+                  <Text style={styles.legalTextSemibold}>Email:</Text> support@innovatexlabs.com{'\n'}
+                  <Text style={styles.legalTextSemibold}>Publisher:</Text> Innovatex Labs
+                </Text>
+              </View>
+            ) : (
+              <View style={{ paddingBottom: 50 }}>
+                <Text style={styles.legalTextBold}>Rupeo Terms & Conditions</Text>
+                <Text style={styles.legalDateText}>Effective Date: September 2026 | Version 2.0</Text>
+
+                <Text style={styles.legalIntroText}>
+                  Please read these Terms & Conditions ("Terms") carefully before using the Rupeo mobile application (package: com.innovatexlabs.paisewaise) operated by Innovatex Labs ("we", "us", or "our"). By downloading, installing, or using Rupeo, you agree to these Terms.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>1. Acceptance of Terms</Text>
+                <Text style={styles.legalText}>
+                  By accessing or using Rupeo, you confirm that you are at least 13 years of age and possess the legal capacity to enter into these Terms. If you do not agree to these Terms, please do not use the application.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>2. Service Description & Financial Disclaimer</Text>
+                <Text style={styles.legalText}>
+                  • <Text style={styles.legalTextSemibold}>Personal Bookkeeping Utility:</Text> Rupeo is a personal expense tracker, budgeting tool, and bill reminder application.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Not a Financial Advisor:</Text> Rupeo is not a registered financial advisor, bank, or tax professional. Any spending wave graphs, AI financial insights, or category reports are for informational and personal organization purposes only. You are solely responsible for your financial decisions.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>No Banking or Fund Custody:</Text> Rupeo does not hold, transmit, custody, deposit, or withdraw real currency.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>3. User Account & Security</Text>
+                <Text style={styles.legalText}>
+                  • You are responsible for safeguarding your login credentials and for all activities that occur under your account.{'\n'}
+                  • You agree to provide accurate information and not impersonate any person or entity.{'\n'}
+                  • You must immediately notify us of any suspected unauthorized access to your account.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>4. Receipts, Barcodes & Shared Documents</Text>
+                <Text style={styles.legalText}>
+                  • Rupeo provides receipt sharing and ISO/IEC 16388 Code 39 barcode encoding for personal expense verification.{'\n'}
+                  • You are solely responsible for ensuring the legality, authenticity, and accuracy of any images or transaction receipts that you upload, export, or share with third parties.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>5. In-App Purchases & VIP Subscriptions</Text>
+                <Text style={styles.legalText}>
+                  • Rupeo offers optional VIP / Pro subscriptions that remove advertisements, provide unlimited bill reminders, and unlock premium report exports.{'\n'}
+                  • Payments are processed securely via Google Play In-App Billing (or Apple App Store). Subscriptions renew automatically unless cancelled at least 24 hours before the renewal date in your Google Play Store Account Settings.{'\n'}
+                  • All refunds are governed by Google Play Store standard refund policies.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>6. Intellectual Property & Prohibited Activities</Text>
+                <Text style={styles.legalText}>
+                  • The Rupeo app, brand logo, software code, UI design, animations, and icons are the exclusive intellectual property of Innovatex Labs.{'\n'}
+                  • You agree not to decompile, reverse-engineer, exploit, or disrupt any part of the service.{'\n'}
+                  • We reserve the right to suspend or terminate accounts that violate these Terms or engage in abusive behavior.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>7. Limitation of Liability</Text>
+                <Text style={styles.legalText}>
+                  To the maximum extent permitted by applicable law, Innovatex Labs and its creators shall not be liable for any indirect, incidental, or consequential damages resulting from the use or inability to use the service, data loss, or reliance on information presented in the app.{'\n\n'}
+                </Text>
+
+                <Text style={styles.legalSectionHeading}>8. Governing Law & Contact</Text>
+                <Text style={styles.legalText}>
+                  These Terms shall be governed by and construed in accordance with the laws of India. Any disputes shall be subject to the exclusive jurisdiction of the courts of India.{'\n\n'}
+                  For support or inquiries, please contact:{'\n'}
+                  <Text style={styles.legalTextSemibold}>Email:</Text> support@innovatexlabs.com{'\n'}
+                  <Text style={styles.legalTextSemibold}>Publisher:</Text> Innovatex Labs
+                </Text>
+              </View>
             )}
           </ScrollView>
         </SafeAreaView>
@@ -1247,22 +1247,24 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
-  vipPill: {
-    backgroundColor: '#FEF3C7',
+  editProfilePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#FCD34D',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    borderColor: '#DBEAFE',
+    marginBottom: 16,
   },
-  vipPillText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#92400E',
-    letterSpacing: 0.4,
+  editProfilePillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#2563EB',
   },
   userName: { fontSize: 24, fontWeight: '900', color: '#0F172A', marginBottom: 4, letterSpacing: -0.5 },
-  userEmail: { fontSize: 14, color: '#64748B', marginBottom: 24, fontWeight: '700' },
+  userEmail: { fontSize: 14, color: '#64748B', marginBottom: 8, fontWeight: '700' },
   statsRow: {
     flexDirection: 'row',
     width: '100%',
@@ -1667,9 +1669,13 @@ const styles = StyleSheet.create({
   startingBalanceCurrency: { color: '#B45309', fontSize: 22, fontWeight: '900', marginRight: 10 },
   startingBalanceInput: { flex: 1, color: '#1C1C1E', fontSize: 22, fontWeight: '800', ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : {}) } as any,
 
-  legalText: { fontSize: 16, color: '#4B5563', lineHeight: 26, fontWeight: '500' },
-  legalTextBold: { fontWeight: '900', color: '#0F172A' },
-  legalTextSemibold: { fontWeight: '700', color: '#1E293B' },
+  legalText: { fontSize: 14.5, color: '#475569', lineHeight: 24, fontWeight: '500' },
+  legalTextBold: { fontSize: 21, fontWeight: '900', color: '#0F172A', marginBottom: 4 },
+  legalDateText: { fontSize: 12, fontWeight: '700', color: '#64748B', marginBottom: 12 },
+  legalIntroText: { fontSize: 14, color: '#334155', lineHeight: 22, fontWeight: '500' },
+  legalSectionHeading: { fontSize: 16, fontWeight: '900', color: '#0F172A', marginTop: 16, marginBottom: 8 },
+  legalTextSemibold: { fontWeight: '800', color: '#1E293B' },
+  legalHighlightText: { fontWeight: '800', color: '#DC2626' },
   
   fullPageHeader: {
     flexDirection: 'row',

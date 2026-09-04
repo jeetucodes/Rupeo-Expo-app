@@ -334,11 +334,6 @@ export default function EditProfileScreen() {
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 }}>
               <Text style={styles.avatarName}>{name || 'Your Name'}</Text>
-              {isPremium && (
-                <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#FCD34D' }}>
-                  <Text style={{ fontSize: 10, fontWeight: '900', color: '#92400E' }}>VIP 👑</Text>
-                </View>
-              )}
             </View>
             <Text style={styles.avatarEmail}>{user?.email}</Text>
 

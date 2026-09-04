@@ -16,6 +16,7 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Animated,
+  Easing,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
@@ -42,6 +43,7 @@ import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
 import CategoryIcon from '@/components/CategoryIcon';
 import Toast from 'react-native-toast-message';
 import Skeleton from '@/components/Skeleton';
+import ScannableBarcode from '@/components/ScannableBarcode';
 
 const PAYMENT_MODES = [
   { id: 'UPI', label: 'UPI', icon: 'flash', color: '#7C3AED' },
@@ -93,6 +95,12 @@ export default function TransactionDetailScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
 
+  const barcodeValue = React.useMemo(() => {
+    const raw = (id || 'TXN001').toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const code = raw.slice(0, 8).padEnd(6, '0');
+    return `RP-${code}`;
+  }, [id]);
+
   useEffect(() => {
     if (receiptImage) {
       Image.getSize(
@@ -116,26 +124,28 @@ export default function TransactionDetailScreen() {
   const cardOpacityAnim = useRef(new Animated.Value(0)).current;
   const logoScaleAnim = useRef(new Animated.Value(0.8)).current;
   const amountBounceAnim = useRef(new Animated.Value(0.95)).current;
-  const floatAnim = useRef(new Animated.Value(0)).current;
+  const bgAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const floatLoop = Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim, {
-          toValue: -7,
-          duration: 1200,
+        Animated.timing(bgAnim, {
+          toValue: 1,
+          duration: 14000,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
-        Animated.timing(floatAnim, {
+        Animated.timing(bgAnim, {
           toValue: 0,
-          duration: 1200,
+          duration: 14000,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
       ])
     );
-    floatLoop.start();
-    return () => floatLoop.stop();
-  }, [floatAnim]);
+    loop.start();
+    return () => loop.stop();
+  }, [bgAnim]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -428,7 +438,96 @@ export default function TransactionDetailScreen() {
       </View>
 
       {!isEditing ? (
-        <ScrollView contentContainerStyle={styles.receiptContent} showsVerticalScrollIndicator={false}>
+        <>
+          {/* SLOW AMBIENT BACKGROUND GLOW ANIMATION */}
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            <Animated.View
+              style={[
+                styles.bgOrb1,
+                {
+                  backgroundColor: type === 'credit' ? 'rgba(16, 185, 129, 0.16)' : 'rgba(239, 68, 68, 0.14)',
+                  transform: [
+                    {
+                      translateX: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [-25, 35, -25],
+                      }),
+                    },
+                    {
+                      translateY: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [0, 50, 0],
+                      }),
+                    },
+                    {
+                      scale: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [1, 1.25, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+            <Animated.View
+              style={[
+                styles.bgOrb2,
+                {
+                  backgroundColor: type === 'credit' ? 'rgba(5, 150, 105, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                  transform: [
+                    {
+                      translateX: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [35, -35, 35],
+                      }),
+                    },
+                    {
+                      translateY: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [0, -40, 0],
+                      }),
+                    },
+                    {
+                      scale: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [0.9, 1.2, 0.9],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+            <Animated.View
+              style={[
+                styles.bgOrb3,
+                {
+                  backgroundColor: type === 'credit' ? 'rgba(52, 211, 153, 0.10)' : 'rgba(225, 29, 72, 0.10)',
+                  transform: [
+                    {
+                      translateX: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [-15, 25, -15],
+                      }),
+                    },
+                    {
+                      translateY: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [40, -15, 40],
+                      }),
+                    },
+                    {
+                      scale: bgAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [1.1, 0.85, 1.1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+          </View>
+
+          <ScrollView contentContainerStyle={styles.receiptContent} showsVerticalScrollIndicator={false}>
 
           {/* ANIMATED RECEIPT CARD */}
           <Animated.View
@@ -485,7 +584,7 @@ export default function TransactionDetailScreen() {
                 <Text style={styles.receiptWatermarkText}>RUPEO</Text>
               </Animated.View>
 
-              {/* HERO ARROW ICON BADGE (WITH FLOATING ANIMATION) */}
+              {/* HERO ARROW ICON BADGE (CLEAN & STATIC) */}
               <Animated.View
                 style={[
                   styles.receiptCardIcon,
@@ -494,8 +593,7 @@ export default function TransactionDetailScreen() {
                     borderColor: type === 'credit' ? '#34D399' : 'rgba(255, 255, 255, 0.45)',
                     borderWidth: 2,
                     transform: [
-                      { scale: logoScaleAnim },
-                      { translateY: floatAnim }
+                      { scale: logoScaleAnim }
                     ]
                   }
                 ]}
@@ -626,8 +724,7 @@ export default function TransactionDetailScreen() {
                       resizeMode="contain"
                     />
                     <View style={styles.receiptPhotoExpandPill}>
-                      <Ionicons name="expand-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-                      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>Tap to Expand</Text>
+                      <Ionicons name="expand" size={14} color="#FFFFFF" />
                     </View>
                   </TouchableOpacity>
                 </>
@@ -644,6 +741,9 @@ export default function TransactionDetailScreen() {
                   </View>
                 </View>
               )}
+
+              {/* AUTHENTIC FINTECH SCANNABLE CODE 39 BARCODE */}
+              <ScannableBarcode value={barcodeValue} width={280} height={50} />
             </View>
 
             {/* CARD FOOTER WITH RUPEO BRANDING */}
@@ -672,7 +772,7 @@ export default function TransactionDetailScreen() {
                 >
                   <Text style={styles.rupeoLogoText}>₹</Text>
                 </Animated.View>
-                <Text style={styles.rupeoAppName}>Rupeo Vault</Text>
+                <Text style={styles.rupeoAppName}>Rupeo</Text>
                 <Animated.View
                   style={[
                     styles.verifiedBadge,
@@ -687,8 +787,8 @@ export default function TransactionDetailScreen() {
                     }
                   ]}
                 >
-                  <Ionicons name="shield-checkmark" size={12} color="#10B981" />
-                  <Text style={styles.verifiedText}>Encrypted & Verified</Text>
+                  <Ionicons name="checkmark-circle" size={13} color="#10B981" style={{ marginRight: 3 }} />
+                  <Text style={styles.verifiedText}>Saved & Verified</Text>
                 </Animated.View>
               </Animated.View>
               <Animated.Text
@@ -702,7 +802,7 @@ export default function TransactionDetailScreen() {
                   }
                 ]}
               >
-                Digital Expense Invoice • 100% Ad-Free for VIPs
+                Tracked with Rupeo • Smart Expense Tracker
               </Animated.Text>
             </View>
 
@@ -728,6 +828,7 @@ export default function TransactionDetailScreen() {
           </TouchableOpacity>
 
         </ScrollView>
+        </>
       ) : (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -1185,6 +1286,56 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+  bgOrb1: {
+    position: 'absolute',
+    top: 50,
+    left: -40,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+  },
+  bgOrb2: {
+    position: 'absolute',
+    top: 260,
+    right: -60,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+  },
+  bgOrb3: {
+    position: 'absolute',
+    bottom: 80,
+    left: -30,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+  },
+  barcodeSection: {
+    marginTop: 18,
+    marginBottom: 4,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    alignItems: 'center',
+  },
+  barcodeLinesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3.5,
+    height: 32,
+    marginBottom: 6,
+  },
+  barcodeBar: {
+    borderRadius: 1,
+  },
+  barcodeText: {
+    fontSize: 9.5,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontWeight: '700',
+    color: '#94A3B8',
+    letterSpacing: 1.5,
+  },
   receiptCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
@@ -1481,18 +1632,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 8,
     right: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15,23,42,0.7)',
+    width: 28,
+    height: 28,
     borderRadius: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 4,
-  },
-  receiptPhotoExpandText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15,23,42,0.72)',
   },
   receiptCardFooter: {
     alignItems: 'center',

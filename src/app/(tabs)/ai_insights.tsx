@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
   Share,
   Platform,
@@ -13,9 +14,13 @@ import {
   Easing,
   RefreshControl,
   StatusBar,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import Svg, {
   Circle,
   Rect,
@@ -32,6 +37,8 @@ import { getAllTransactions, getUserCategories, CategoryItem, defaultCategories 
 import CategoryIcon from '@/components/CategoryIcon';
 import PaymentModeIcon from '@/components/PaymentModeIcon';
 import Toast from 'react-native-toast-message';
+import { generateAndShareFinancialReportPDF } from '@/lib/pdfReport';
+import { useTranslation } from '@/lib/i18n';
 
 const { width } = Dimensions.get('window');
 const CHART_WIDTH = width - 40;
@@ -62,6 +69,7 @@ interface CategorySpend {
 
 interface TrendPoint {
   label: string;
+  dayName?: string;
   fullDate?: string;
   income: number;
   expense: number;
@@ -98,7 +106,10 @@ function buildSmoothPath(points: { x: number; y: number }[]): string {
 
 export default function ReportsScreen() {
   const { user, settings, isPremium } = useAuth();
+  const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
+  const { width: windowWidth } = useWindowDimensions();
+  const chartWidth = Math.max(windowWidth - 76, 260);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -109,6 +120,10 @@ export default function ReportsScreen() {
   const [categoryType, setCategoryType] = useState<'expense' | 'income'>('expense');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
+  const [selectedTrendIndex, setSelectedTrendIndex] = useState<number | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [selectedCategoryDetail, setSelectedCategoryDetail] = useState<CategorySpend | null>(null);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -134,7 +149,7 @@ export default function ReportsScreen() {
           toValue: 1,
           duration: 2800,
           easing: Easing.bezier(0.4, 0, 0.2, 1),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.delay(2200),
       ])
@@ -177,12 +192,12 @@ export default function ReportsScreen() {
     ],
   };
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceRefresh = false) => {
     if (!user?.uid) return;
     try {
       const [txList, catList] = await Promise.all([
-        getAllTransactions(user.uid),
-        getUserCategories(user.uid),
+        getAllTransactions(user.uid, forceRefresh),
+        getUserCategories(user.uid, forceRefresh),
       ]);
       const normalizedTx: TransactionItem[] = (txList || []).map((t: any) => ({
         id: t.id,
@@ -210,12 +225,12 @@ export default function ReportsScreen() {
   }, [user?.uid, fadeAnim]);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
   }, [loadData]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData();
+    loadData(true);
   };
 
   // Filter transactions based on selected period
@@ -414,16 +429,19 @@ export default function ReportsScreen() {
   // Daily Spending Points for the Smooth Curve
   const dailyTrendPoints = useMemo<TrendPoint[]>(() => {
     const now = new Date();
-    const map: { [dayKey: string]: { label: string; fullDate: string; income: number; expense: number } } = {};
+    const map: { [dayKey: string]: { label: string; dayName: string; fullDate: string; income: number; expense: number } } = {};
 
     // 7 recent data bins
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(now.getDate() - i);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       map[key] = {
         label: `${d.getDate()} ${months[d.getMonth()]}`,
+        dayName: dayNames[d.getDay()],
         fullDate: key,
         income: 0,
         expense: 0,
@@ -441,12 +459,29 @@ export default function ReportsScreen() {
 
     return Object.keys(map).map(k => ({
       label: map[k].label,
+      dayName: map[k].dayName,
       fullDate: map[k].fullDate,
       income: map[k].income,
       expense: map[k].expense,
       net: map[k].income - map[k].expense,
     }));
   }, [filteredTransactions]);
+
+  // 7-Day Spending Wave Summary
+  const spendingWaveSummary = useMemo(() => {
+    let totalSpend = 0;
+    let peakSpend = 0;
+    let peakDayLabel = '';
+    dailyTrendPoints.forEach(p => {
+      totalSpend += p.expense;
+      if (p.expense > peakSpend) {
+        peakSpend = p.expense;
+        peakDayLabel = p.label;
+      }
+    });
+    const avgDailySpend = Math.round(totalSpend / Math.max(dailyTrendPoints.length, 1));
+    return { totalSpend, peakSpend, peakDayLabel, avgDailySpend };
+  }, [dailyTrendPoints]);
 
   // 6-Month Macro Trends
   const monthlyTrends = useMemo<TrendPoint[]>(() => {
@@ -480,11 +515,25 @@ export default function ReportsScreen() {
 
     return Object.keys(monthsMap).map(k => ({
       label: monthsMap[k].label,
+      fullDate: k,
       income: monthsMap[k].income,
       expense: monthsMap[k].expense,
       net: monthsMap[k].income - monthsMap[k].expense,
     }));
   }, [transactions]);
+
+  // 6-Month Cash Flow Aggregate Summary
+  const cashFlowSummary = useMemo(() => {
+    let totalIn = 0;
+    let totalOut = 0;
+    monthlyTrends.forEach(m => {
+      totalIn += m.income;
+      totalOut += m.expense;
+    });
+    const totalNet = totalIn - totalOut;
+    const savingsRate = totalIn > 0 ? Math.max(0, Math.round((totalNet / totalIn) * 100)) : 0;
+    return { totalIn, totalOut, totalNet, savingsRate };
+  }, [monthlyTrends]);
 
   // Day of Week Distribution
   const dayOfWeekSpend = useMemo(() => {
@@ -538,11 +587,7 @@ export default function ReportsScreen() {
         });
       }
 
-      if (isPremium) {
-        text += `\n👑 *Rupeo VIP Pro Financial Ledger* (Official HD Report)\nhttps://rupeo.app`;
-      } else {
-        text += `\n— Generated via Rupeo (Free Edition). Upgrade to Rupeo Pro for Clean HD Reports & Cloud Sync.\nhttps://rupeo.app`;
-      }
+      text += `\n📊 *Rupeo Financial Ledger & Statement*\nhttps://rupeo.app`;
 
       await Share.share({ message: text });
     } catch (e) {
@@ -550,94 +595,599 @@ export default function ReportsScreen() {
     }
   };
 
-  // Render SVG Smooth Bezier Line & Area Graph
+  // Month-over-Month Velocity & Comparison
+  const prevPeriodMetrics = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const prevTxs = transactions.filter(tx => {
+      const d = new Date(tx.date);
+      if (isNaN(d.getTime())) return false;
+
+      if (period === 'this_month') {
+        const lastMo = new Date(currentYear, currentMonth - 1, 1);
+        return d.getFullYear() === lastMo.getFullYear() && d.getMonth() === lastMo.getMonth();
+      }
+      if (period === 'last_month') {
+        const twoMoAgo = new Date(currentYear, currentMonth - 2, 1);
+        return d.getFullYear() === twoMoAgo.getFullYear() && d.getMonth() === twoMoAgo.getMonth();
+      }
+      if (period === '3_months') {
+        const sixMoAgo = new Date(currentYear, currentMonth - 5, 1);
+        const threeMoAgo = new Date(currentYear, currentMonth - 2, 1);
+        return d >= sixMoAgo && d < threeMoAgo;
+      }
+      if (period === 'this_year') {
+        return d.getFullYear() === currentYear - 1;
+      }
+      return false;
+    });
+
+    let prevExpense = 0;
+    let prevIncome = 0;
+    prevTxs.forEach(t => {
+      if (t.type === 'expense') prevExpense += Math.abs(t.amount);
+      else prevIncome += Math.abs(t.amount);
+    });
+
+    const diff = metrics.expense - prevExpense;
+    const diffPct = prevExpense > 0 ? Math.round((Math.abs(diff) / prevExpense) * 100) : 0;
+    const isHigher = diff > 0;
+
+    let projectedSpend = metrics.expense;
+    if (period === 'this_month') {
+      const daysInMo = new Date(currentYear, currentMonth + 1, 0).getDate();
+      const currentDay = Math.max(1, now.getDate());
+      projectedSpend = Math.round((metrics.expense / currentDay) * daysInMo);
+    }
+
+    return {
+      prevExpense,
+      prevIncome,
+      diff,
+      diffPct,
+      isHigher,
+      hasPrevData: prevTxs.length > 0,
+      projectedSpend,
+    };
+  }, [transactions, period, metrics]);
+
+  // 50 / 30 / 20 Budget Rule Breakdown
+  const rule503020 = useMemo(() => {
+    const expenseTx = filteredTransactions.filter(t => t.type === 'expense');
+    const totalExp = expenseTx.reduce((acc, t) => acc + Math.abs(t.amount), 0);
+
+    const needsKeywords = [
+      'rent',
+      'groceries',
+      'utilities',
+      'bills',
+      'healthcare',
+      'emi',
+      'education',
+      'fuel',
+      'medical',
+      'transport',
+      'medicine',
+      'hospital',
+      'doctor',
+    ];
+
+    let needsAmt = 0;
+    let wantsAmt = 0;
+
+    expenseTx.forEach(t => {
+      const cat = (t.category || '').toLowerCase();
+      if (needsKeywords.some(k => cat.includes(k))) {
+        needsAmt += Math.abs(t.amount);
+      } else {
+        wantsAmt += Math.abs(t.amount);
+      }
+    });
+
+    const income = metrics.income > 0 ? metrics.income : totalExp;
+    const needsPct = income > 0 ? Math.round((needsAmt / income) * 100) : 0;
+    const wantsPct = income > 0 ? Math.round((wantsAmt / income) * 100) : 0;
+    const savingsPct = metrics.savingsRate;
+
+    return {
+      needsAmt,
+      wantsAmt,
+      savingsAmt: Math.max(0, metrics.net),
+      needsPct: Math.min(100, needsPct),
+      wantsPct: Math.min(100, wantsPct),
+      savingsPct: Math.min(100, savingsPct),
+    };
+  }, [filteredTransactions, metrics]);
+
+  // Weekend vs Weekday Spending Analysis
+  const weekendVsWeekday = useMemo(() => {
+    const expenseTx = filteredTransactions.filter(t => t.type === 'expense');
+    let weekdayTotal = 0;
+    let weekendTotal = 0;
+    let weekdayCount = 0;
+    let weekendCount = 0;
+
+    expenseTx.forEach(t => {
+      const d = new Date(t.date);
+      const day = d.getDay(); // 0 = Sun, 6 = Sat
+      if (day === 0 || day === 6) {
+        weekendTotal += Math.abs(t.amount);
+        weekendCount++;
+      } else {
+        weekdayTotal += Math.abs(t.amount);
+        weekdayCount++;
+      }
+    });
+
+    const total = weekdayTotal + weekendTotal;
+    const weekdayPct = total > 0 ? Math.round((weekdayTotal / total) * 100) : 50;
+    const weekendPct = total > 0 ? 100 - weekdayPct : 50;
+
+    return {
+      weekdayTotal,
+      weekendTotal,
+      weekdayPct,
+      weekendPct,
+      weekdayCount,
+      weekendCount,
+    };
+  }, [filteredTransactions]);
+
+  // CSV Export
+  const handleExportCSV = async () => {
+    try {
+      if (filteredTransactions.length === 0) {
+        Toast.show({ type: 'info', text1: 'No Data', text2: 'No transactions to export for this period' });
+        return;
+      }
+
+      const periodLabel =
+        period === 'this_month' ? 'This_Month' :
+        period === 'last_month' ? 'Last_Month' :
+        period === '3_months' ? 'Last_3_Months' :
+        period === 'this_year' ? 'This_Year' : 'All_Time';
+
+      let csv = 'Date,Description,Category,Type,Amount,PaymentMode\n';
+      filteredTransactions.forEach(tx => {
+        const title = `"${(tx.title || tx.description || tx.category || '').replace(/"/g, '""')}"`;
+        const cat = `"${(tx.category || '').replace(/"/g, '""')}"`;
+        const mode = `"${(tx.payment_mode || 'UPI').replace(/"/g, '""')}"`;
+        csv += `${tx.date},${title},${cat},${tx.type},${tx.amount},${mode}\n`;
+      });
+
+      const filename = `Rupeo_Report_${periodLabel}.csv`;
+
+      // Web direct browser file download
+      if (Platform.OS === 'web') {
+        if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.setAttribute('href', url);
+          link.setAttribute('download', filename);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          Toast.show({ type: 'success', text1: 'CSV Downloaded', text2: `Saved as ${filename}` });
+          setShowExportModal(false);
+          return;
+        }
+      }
+
+      // Mobile (Android / iOS) file system write & share
+      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+      await FileSystem.writeAsStringAsync(fileUri, csv, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: `Export Rupeo Report (${filename})`,
+          UTI: 'public.comma-separated-values-text',
+        });
+      } else {
+        Toast.show({ type: 'success', text1: 'CSV Exported', text2: `Saved as ${filename}` });
+      }
+      setShowExportModal(false);
+    } catch (e) {
+      console.error(e);
+      Toast.show({ type: 'error', text1: 'Export Failed', text2: 'Could not export CSV file' });
+    }
+  };
+
+  // Multi-Page PDF Generation & Share
+  const handleExportPDF = async () => {
+    try {
+      if (filteredTransactions.length === 0) {
+        Toast.show({ type: 'info', text1: 'No Data', text2: 'No transactions found for this period' });
+        return;
+      }
+
+      setIsGeneratingPDF(true);
+      setShowExportModal(false);
+
+      const periodTitle =
+        period === 'this_month' ? 'This Month' :
+        period === 'last_month' ? 'Last Month' :
+        period === '3_months' ? 'Last 3 Months' :
+        period === 'this_year' ? 'This Year' : 'All Time';
+
+      // Calculate dedicated expense category breakdown for PDF export
+      const expenseTx = filteredTransactions.filter(t => t.type === 'expense');
+      const totalExpAmount = expenseTx.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+      const catMap: { [cat: string]: { amount: number; count: number } } = {};
+      expenseTx.forEach(t => {
+        const cat = t.category || 'Others';
+        if (!catMap[cat]) catMap[cat] = { amount: 0, count: 0 };
+        catMap[cat].amount += Math.abs(t.amount);
+        catMap[cat].count += 1;
+      });
+      const expenseBreakdownForPDF = Object.keys(catMap).map((catName, idx) => {
+        const matchedCat = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
+        const amount = catMap[catName].amount;
+        const percentage = totalExpAmount > 0 ? Math.round((amount / totalExpAmount) * 100) : 0;
+        return {
+          name: catName,
+          amount,
+          percentage,
+          color: matchedCat?.color || PALETTE[idx % PALETTE.length],
+          icon: matchedCat?.icon || 'receipt',
+          count: catMap[catName].count,
+        };
+      }).sort((a, b) => b.amount - a.amount);
+
+      await generateAndShareFinancialReportPDF({
+        userName: user?.displayName || 'Rupeo User',
+        userEmail: user?.email || '',
+        periodTitle,
+        curr,
+        metrics,
+        prevPeriodMetrics,
+        financialHealth,
+        rule503020,
+        weekendVsWeekday,
+        dayOfWeekSpend,
+        categoryBreakdown: expenseBreakdownForPDF.length > 0 ? expenseBreakdownForPDF : categoryBreakdown,
+        paymentModesSplit,
+        topExpenses,
+        transactions: filteredTransactions,
+        dailyTrendPoints,
+        monthlyTrends,
+      });
+
+      Toast.show({ type: 'success', text1: 'PDF Exported', text2: 'Multi-page financial statement ready' });
+    } catch (e: any) {
+      console.error('PDF Export Error:', e);
+      Toast.show({ type: 'error', text1: 'PDF Error', text2: e?.message || 'Could not generate PDF' });
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
+
+  // Render SVG Smooth Bezier Line & Area Graph (Enhanced Spending Wave)
   const renderSmoothLineGraph = () => {
     const dataPoints = dailyTrendPoints;
     const maxVal = Math.max(...dataPoints.map(p => p.expense), 500);
-    const chartHeight = 150;
-    const paddingX = 22;
-    const usableWidth = CHART_WIDTH - paddingX * 2;
+    const chartHeight = 155;
+    const paddingX = 18;
+    const usableWidth = chartWidth - paddingX * 2;
     const step = usableWidth / Math.max(dataPoints.length - 1, 1);
 
     const coords = dataPoints.map((p, idx) => ({
       x: paddingX + idx * step,
-      y: chartHeight - (p.expense / maxVal) * (chartHeight - 30) - 10,
+      y: chartHeight - (p.expense / maxVal) * (chartHeight - 35) - 12,
     }));
 
     const smoothLineD = buildSmoothPath(coords);
     const smoothAreaD = `${smoothLineD} L ${coords[coords.length - 1].x} ${chartHeight} L ${coords[0].x} ${chartHeight} Z`;
 
-    const activePoint = selectedPointIndex !== null ? dataPoints[selectedPointIndex] : null;
-    const activeCoord = selectedPointIndex !== null ? coords[selectedPointIndex] : null;
+    const activePoint = selectedPointIndex !== null && dataPoints[selectedPointIndex]
+      ? dataPoints[selectedPointIndex]
+      : null;
+    const activeCoord = selectedPointIndex !== null && coords[selectedPointIndex]
+      ? coords[selectedPointIndex]
+      : null;
+
+    // Helper for formatting Y-axis numbers
+    const formatY = (val: number) => (val >= 1000 ? `${Math.round(val / 1000)}k` : `${val}`);
+
+    const isPeakPoint = activePoint && activePoint.expense === spendingWaveSummary.peakSpend && spendingWaveSummary.peakSpend > 0;
+    const spendPercent = activePoint && spendingWaveSummary.totalSpend > 0
+      ? Math.round((activePoint.expense / spendingWaveSummary.totalSpend) * 100)
+      : 0;
 
     return (
       <View style={styles.chartWrapperCard}>
+        {/* HEADER */}
         <View style={styles.chartHeaderRow}>
-          <View>
-            <Text style={styles.themeCardTitle}>Spending Wave</Text>
-            <Text style={styles.themeCardSub}>Daily trend & peak spending days</Text>
+          <View style={{ flex: 1, marginRight: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.themeCardTitle}>{t('spending_wave') || 'Spending Wave'}</Text>
+              <View style={styles.waveLiveBadge}>
+                <Text style={styles.waveLiveBadgeText}>7-Day Wave</Text>
+              </View>
+            </View>
+            <Text style={styles.themeCardSub}>
+              {activePoint
+                ? `Inspecting ${activePoint.dayName || ''} ${activePoint.label} daily spend`
+                : 'Tap any day along the wave to inspect outflow'}
+            </Text>
           </View>
-          {activePoint && (
-            <View style={styles.activePointPill}>
-              <Text style={styles.activePointPillDate}>{activePoint.label}:</Text>
-              <Text style={styles.activePointPillAmount}>{curr}{activePoint.expense.toLocaleString('en-IN')}</Text>
+
+          {/* Reset or Peak Pill */}
+          {activePoint ? (
+            <TouchableOpacity
+              style={styles.resetCatBtn}
+              onPress={() => setSelectedPointIndex(null)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={13} color="#64748B" style={{ marginRight: 3 }} />
+              <Text style={styles.resetCatText}>Reset</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.wavePeakSummaryPill}>
+              <Ionicons name="flame" size={12} color="#D97706" style={{ marginRight: 3 }} />
+              <Text style={styles.wavePeakSummaryText}>
+                Peak: {curr}{spendingWaveSummary.peakSpend.toLocaleString('en-IN')}
+              </Text>
             </View>
           )}
         </View>
 
-        <Svg width={CHART_WIDTH} height={chartHeight + 35} style={{ alignSelf: 'center' }}>
+        {/* 7-DAY EXECUTIVE SUMMARY STRIP (WHEN NO POINT SELECTED) */}
+        {!activePoint ? (
+          <View style={styles.waveSummaryRow}>
+            <View style={styles.waveSummaryCol}>
+              <Text style={styles.waveSummaryLabel}>7-DAY OUTFLOW</Text>
+              <Text style={[styles.waveSummaryValue, { color: '#0F172A' }]}>
+                {curr}{spendingWaveSummary.totalSpend.toLocaleString('en-IN')}
+              </Text>
+            </View>
+            <View style={styles.waveSummaryDivider} />
+            <View style={styles.waveSummaryCol}>
+              <Text style={styles.waveSummaryLabel}>DAILY AVERAGE</Text>
+              <Text style={[styles.waveSummaryValue, { color: '#D97706' }]}>
+                {curr}{spendingWaveSummary.avgDailySpend.toLocaleString('en-IN')}
+              </Text>
+            </View>
+            <View style={styles.waveSummaryDivider} />
+            <View style={styles.waveSummaryCol}>
+              <Text style={styles.waveSummaryLabel}>PEAK OUTFLOW</Text>
+              <Text style={[styles.waveSummaryValue, { color: '#DC2626' }]}>
+                {curr}{spendingWaveSummary.peakSpend.toLocaleString('en-IN')}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          /* ACTIVE DAY INSPECTOR CARD */
+          <View style={styles.waveInspectorCard}>
+            <View style={styles.waveInspectorHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={styles.waveInspectorIcon}>
+                  <Ionicons name="pulse" size={13} color="#D97706" />
+                </View>
+                <Text style={styles.waveInspectorTitle}>
+                  {activePoint.dayName ? `${activePoint.dayName}, ` : ''}{activePoint.label}
+                </Text>
+              </View>
+
+              <View style={[
+                styles.waveBadge,
+                isPeakPoint
+                  ? { backgroundColor: '#FEE2E2', borderColor: '#FECDD3' }
+                  : activePoint.expense === 0
+                  ? { backgroundColor: '#DCFCE7', borderColor: '#BBF7D0' }
+                  : { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }
+              ]}>
+                <Ionicons
+                  name={isPeakPoint ? 'flame' : activePoint.expense === 0 ? 'checkmark-circle' : 'analytics'}
+                  size={12}
+                  color={isPeakPoint ? '#DC2626' : activePoint.expense === 0 ? '#16A34A' : '#D97706'}
+                  style={{ marginRight: 3 }}
+                />
+                <Text style={[
+                  styles.waveBadgeText,
+                  { color: isPeakPoint ? '#B91C1C' : activePoint.expense === 0 ? '#15803D' : '#92400E' }
+                ]}>
+                  {isPeakPoint
+                    ? 'Peak Spending Day'
+                    : activePoint.expense === 0
+                    ? 'Zero Spends'
+                    : `${spendPercent}% of 7-Day`}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.waveInspectorPillsRow}>
+              <View style={styles.waveInspectorPillItem}>
+                <Text style={styles.waveInspectorPillLabel}>OUTFLOW</Text>
+                <Text style={[styles.waveInspectorPillValue, { color: '#DC2626' }]}>
+                  {curr}{activePoint.expense.toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <View style={styles.waveInspectorPillItem}>
+                <Text style={styles.waveInspectorPillLabel}>VS 7-D AVG</Text>
+                <Text style={[
+                  styles.waveInspectorPillValue,
+                  {
+                    color: activePoint.expense > spendingWaveSummary.avgDailySpend
+                      ? '#DC2626'
+                      : activePoint.expense < spendingWaveSummary.avgDailySpend
+                      ? '#059669'
+                      : '#64748B'
+                  }
+                ]}>
+                  {activePoint.expense > spendingWaveSummary.avgDailySpend
+                    ? `+${curr}${(activePoint.expense - spendingWaveSummary.avgDailySpend).toLocaleString('en-IN')}`
+                    : activePoint.expense < spendingWaveSummary.avgDailySpend
+                    ? `-${curr}${(spendingWaveSummary.avgDailySpend - activePoint.expense).toLocaleString('en-IN')}`
+                    : 'Equal'}
+                </Text>
+              </View>
+              <View style={styles.waveInspectorPillItem}>
+                <Text style={styles.waveInspectorPillLabel}>INFLOW</Text>
+                <Text style={[styles.waveInspectorPillValue, { color: '#059669' }]}>
+                  +{curr}{activePoint.income.toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* SVG CHART */}
+        <Svg width={chartWidth} height={chartHeight + 35} style={{ alignSelf: 'center' }}>
           <Defs>
             <LinearGradient id="smoothAreaGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#FFD740" stopOpacity="0.45" />
-              <Stop offset="0.7" stopColor="#FFD740" stopOpacity="0.1" />
-              <Stop offset="1" stopColor="#FFD740" stopOpacity="0" />
+              <Stop offset="0" stopColor="#F59E0B" stopOpacity="0.4" />
+              <Stop offset="0.65" stopColor="#F59E0B" stopOpacity="0.08" />
+              <Stop offset="1" stopColor="#F59E0B" stopOpacity="0" />
             </LinearGradient>
             <LinearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-              <Stop offset="0" stopColor="#F59E0B" />
-              <Stop offset="0.5" stopColor="#D97706" />
-              <Stop offset="1" stopColor="#B45309" />
+              <Stop offset="0" stopColor="#FBBF24" />
+              <Stop offset="0.4" stopColor="#F59E0B" />
+              <Stop offset="0.8" stopColor="#EA580C" />
+              <Stop offset="1" stopColor="#D97706" />
+            </LinearGradient>
+            <LinearGradient id="activeWaveColGrad" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#F59E0B" stopOpacity="0.12" />
+              <Stop offset="1" stopColor="#F59E0B" stopOpacity="0.02" />
             </LinearGradient>
           </Defs>
 
-          {/* Grid Guideline Lines */}
-          <Line x1={paddingX} y1={chartHeight * 0.25} x2={CHART_WIDTH - paddingX} y2={chartHeight * 0.25} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <Line x1={paddingX} y1={chartHeight * 0.5} x2={CHART_WIDTH - paddingX} y2={chartHeight * 0.5} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <Line x1={paddingX} y1={chartHeight * 0.75} x2={CHART_WIDTH - paddingX} y2={chartHeight * 0.75} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <Line x1={paddingX} y1={chartHeight} x2={CHART_WIDTH - paddingX} y2={chartHeight} stroke="#E2E8F0" strokeWidth="1" />
+          {/* Reference guidelines with Y-axis markers */}
+          <Line x1={paddingX} y1={chartHeight * 0.22} x2={chartWidth - paddingX} y2={chartHeight * 0.22} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
+          <SvgText x={paddingX} y={chartHeight * 0.22 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{curr}{formatY(maxVal * 0.78)}</SvgText>
+
+          <Line x1={paddingX} y1={chartHeight * 0.58} x2={chartWidth - paddingX} y2={chartHeight * 0.58} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
+          <SvgText x={paddingX} y={chartHeight * 0.58 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{curr}{formatY(maxVal * 0.42)}</SvgText>
+
+          {/* Baseline */}
+          <Line x1={paddingX} y1={chartHeight} x2={chartWidth - paddingX} y2={chartHeight} stroke="#E2E8F0" strokeWidth="1.2" />
+
+          {/* Active Column Highlight Pillar (Behind Wave) */}
+          {activeCoord && (
+            <Rect
+              x={activeCoord.x - step / 2}
+              y={6}
+              width={step}
+              height={chartHeight - 4}
+              rx={10}
+              fill="url(#activeWaveColGrad)"
+              stroke="#FDE68A"
+              strokeWidth="1"
+            />
+          )}
 
           {/* Glowing Area Fill Under Curve */}
           <Path d={smoothAreaD} fill="url(#smoothAreaGrad)" />
 
           {/* Smooth Bezier Line */}
-          <Path d={smoothLineD} stroke="url(#lineGrad)" strokeWidth="3" fill="transparent" strokeLinecap="round" strokeLinejoin="round" />
+          <Path d={smoothLineD} stroke="url(#lineGrad)" strokeWidth="3.2" fill="transparent" strokeLinecap="round" strokeLinejoin="round" />
 
-          {/* Interactive Data Dots */}
+          {/* Selected Point Vertical Guideline */}
+          {activeCoord && (
+            <Line
+              x1={activeCoord.x}
+              y1={activeCoord.y}
+              x2={activeCoord.x}
+              y2={chartHeight}
+              stroke="#D97706"
+              strokeWidth="1.5"
+              strokeDasharray="3 3"
+            />
+          )}
+
+          {/* Data Points, Touch Strips & Labels */}
           {coords.map((c, idx) => {
             const isSelected = selectedPointIndex === idx;
+            const item = dataPoints[idx];
+            const isPeak = item.expense === spendingWaveSummary.peakSpend && spendingWaveSummary.peakSpend > 0;
+
             return (
               <G key={`dot-${idx}`}>
+                {/* Full Column Touch Strip */}
+                <Rect
+                  x={c.x - step / 2}
+                  y={0}
+                  width={step}
+                  height={chartHeight + 35}
+                  fill="transparent"
+                  onPress={() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx)}
+                />
+
+                {/* Selected Point Halo Ring */}
+                {isSelected && (
+                  <Circle
+                    cx={c.x}
+                    cy={c.y}
+                    r={10}
+                    fill="#F59E0B"
+                    opacity={0.22}
+                  />
+                )}
+
+                {/* Main Point Dot */}
                 <Circle
                   cx={c.x}
                   cy={c.y}
-                  r={isSelected ? 6 : 4}
-                  fill={isSelected ? '#1C1C1E' : '#FFFFFF'}
-                  stroke={isSelected ? '#FFD740' : '#F59E0B'}
-                  strokeWidth={isSelected ? 3 : 2}
-                  {...(Platform.OS === 'web'
-                    ? { onClick: () => setSelectedPointIndex(idx) }
-                    : { onPress: () => setSelectedPointIndex(idx) })}
+                  r={isSelected ? 6 : isPeak ? 4.5 : 3.5}
+                  fill={isSelected ? '#B45309' : isPeak ? '#EF4444' : '#FFFFFF'}
+                  stroke={isSelected ? '#FFFFFF' : isPeak ? '#FFFFFF' : '#F59E0B'}
+                  strokeWidth={isSelected ? 2.5 : isPeak ? 2 : 2}
+                  onPress={() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx)}
                 />
-                {/* X Axis Date Label */}
+
+                {/* Peak Day Beacon */}
+                {isPeak && !isSelected && (
+                  <Circle
+                    cx={c.x}
+                    cy={c.y - 8}
+                    r={2.5}
+                    fill="#EF4444"
+                  />
+                )}
+
+                {/* X Axis Day & Date Label */}
                 <SvgText
                   x={c.x}
-                  y={chartHeight + 20}
-                  fontSize="10"
-                  fontWeight="700"
-                  fill={isSelected ? '#1C1C1E' : '#94A3B8'}
+                  y={chartHeight + 17}
+                  fontSize={isSelected ? '11' : '10'}
+                  fontWeight={isSelected ? '900' : '700'}
+                  fill={isSelected ? '#0F172A' : '#64748B'}
                   textAnchor="middle"
+                  onPress={() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx)}
                 >
-                  {dataPoints[idx].label.split(' ')[0]}
+                  {item.dayName || item.label.split(' ')[0]}
                 </SvgText>
+
+                <SvgText
+                  x={c.x}
+                  y={chartHeight + 28}
+                  fontSize="8"
+                  fontWeight={isSelected ? '800' : '600'}
+                  fill={isSelected ? '#D97706' : '#94A3B8'}
+                  textAnchor="middle"
+                  onPress={() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx)}
+                >
+                  {item.label.split(' ')[0]}
+                </SvgText>
+
+                {/* Active Indicator Underline */}
+                {isSelected && (
+                  <Line
+                    x1={c.x - 8}
+                    y1={chartHeight + 32}
+                    x2={c.x + 8}
+                    y2={chartHeight + 32}
+                    stroke="#D97706"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                )}
               </G>
             );
           })}
@@ -646,88 +1196,260 @@ export default function ReportsScreen() {
     );
   };
 
-  // Render Bar Chart for Monthly Income vs Expense
+  // Render Bar Chart for Monthly Income vs Expense (Enhanced Cash Flow Trends)
   const renderMonthlyBarChart = () => {
     const maxVal = Math.max(
       ...monthlyTrends.map(m => Math.max(m.income, m.expense)),
       1000
     );
-    const chartHeight = 150;
-    const barWidth = 14;
-    const gap = (CHART_WIDTH - 30) / monthlyTrends.length;
+    const chartHeight = 155;
+    const paddingX = 12;
+    const usableWidth = chartWidth - paddingX * 2;
+    const gap = usableWidth / Math.max(monthlyTrends.length, 1);
+    const barWidth = Math.min(Math.max(gap * 0.28, 8), 16);
+
+    const activeItem = selectedTrendIndex !== null && monthlyTrends[selectedTrendIndex]
+      ? monthlyTrends[selectedTrendIndex]
+      : null;
+
+    // Helper for formatting Y-axis numbers
+    const formatY = (val: number) => (val >= 1000 ? `${Math.round(val / 1000)}k` : `${val}`);
 
     return (
       <View style={styles.chartWrapperCard}>
+        {/* HEADER */}
         <View style={styles.chartHeaderRow}>
-          <View>
-            <Text style={styles.themeCardTitle}>Cash Flow Trends</Text>
-            <Text style={styles.themeCardSub}>Income vs Expense comparison</Text>
-          </View>
-          <View style={styles.barLegendRow}>
-            <View style={styles.legendDotItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
-              <Text style={styles.legendText}>In</Text>
+          <View style={{ flex: 1, marginRight: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.themeCardTitle}>{t('cash_flow_trends') || 'Cash Flow Trends'}</Text>
+              <View style={styles.trendLiveBadge}>
+                <Text style={styles.trendLiveBadgeText}>6-Month</Text>
+              </View>
             </View>
-            <View style={styles.legendDotItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
-              <Text style={styles.legendText}>Out</Text>
-            </View>
+            <Text style={styles.themeCardSub}>
+              {activeItem
+                ? `Inspecting ${activeItem.label} cash flow`
+                : 'Tap any column to inspect income, expense & savings'}
+            </Text>
           </View>
+
+          {/* Reset / Legend */}
+          {activeItem ? (
+            <TouchableOpacity
+              style={styles.resetCatBtn}
+              onPress={() => setSelectedTrendIndex(null)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle" size={13} color="#64748B" style={{ marginRight: 3 }} />
+              <Text style={styles.resetCatText}>Reset</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.barLegendRow}>
+              <View style={styles.legendDotItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+                <Text style={styles.legendText}>In</Text>
+              </View>
+              <View style={styles.legendDotItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
+                <Text style={styles.legendText}>Out</Text>
+              </View>
+            </View>
+          )}
         </View>
 
-        <Svg width={CHART_WIDTH} height={chartHeight + 35}>
+        {/* 6-MONTH AGGREGATE SUMMARY STRIP (WHEN NO COLUMN SELECTED) */}
+        {!activeItem ? (
+          <View style={styles.trendSummaryRow}>
+            <View style={styles.trendSummaryCol}>
+              <Text style={styles.trendSummaryLabel}>TOTAL INFLOW</Text>
+              <Text style={[styles.trendSummaryValue, { color: '#059669' }]}>
+                +{curr}{cashFlowSummary.totalIn.toLocaleString('en-IN')}
+              </Text>
+            </View>
+            <View style={styles.trendSummaryDivider} />
+            <View style={styles.trendSummaryCol}>
+              <Text style={styles.trendSummaryLabel}>TOTAL OUTFLOW</Text>
+              <Text style={[styles.trendSummaryValue, { color: '#DC2626' }]}>
+                -{curr}{cashFlowSummary.totalOut.toLocaleString('en-IN')}
+              </Text>
+            </View>
+            <View style={styles.trendSummaryDivider} />
+            <View style={styles.trendSummaryCol}>
+              <Text style={styles.trendSummaryLabel}>NET SURPLUS</Text>
+              <Text style={[styles.trendSummaryValue, { color: cashFlowSummary.totalNet >= 0 ? '#059669' : '#DC2626' }]}>
+                {cashFlowSummary.totalNet >= 0 ? '+' : '-'}{curr}{Math.abs(cashFlowSummary.totalNet).toLocaleString('en-IN')}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          /* ACTIVE MONTH INSPECTOR POPUP CARD */
+          <View style={styles.trendInspectorCard}>
+            <View style={styles.trendInspectorHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={styles.trendInspectorIcon}>
+                  <Ionicons name="calendar" size={13} color="#2563EB" />
+                </View>
+                <Text style={styles.trendInspectorTitle}>{activeItem.label} Cash Flow</Text>
+              </View>
+              <View style={[
+                styles.trendNetBadge,
+                { backgroundColor: activeItem.net >= 0 ? '#DCFCE7' : '#FEE2E2' }
+              ]}>
+                <Ionicons
+                  name={activeItem.net >= 0 ? 'trending-up' : 'trending-down'}
+                  size={12}
+                  color={activeItem.net >= 0 ? '#16A34A' : '#DC2626'}
+                  style={{ marginRight: 3 }}
+                />
+                <Text style={[
+                  styles.trendNetBadgeText,
+                  { color: activeItem.net >= 0 ? '#15803D' : '#B91C1C' }
+                ]}>
+                  {activeItem.net >= 0
+                    ? `+${curr}${activeItem.net.toLocaleString('en-IN')} Net Saved`
+                    : `-${curr}${Math.abs(activeItem.net).toLocaleString('en-IN')} Deficit`}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.trendInspectorPillsRow}>
+              <View style={styles.trendInspectorPillIn}>
+                <Text style={styles.trendInspectorPillLabel}>INFLOW</Text>
+                <Text style={styles.trendInspectorPillValue}>+{curr}{activeItem.income.toLocaleString('en-IN')}</Text>
+              </View>
+              <View style={styles.trendInspectorPillOut}>
+                <Text style={styles.trendInspectorPillLabel}>OUTFLOW</Text>
+                <Text style={styles.trendInspectorPillValue}>-{curr}{activeItem.expense.toLocaleString('en-IN')}</Text>
+              </View>
+              <View style={styles.trendInspectorPillRate}>
+                <Text style={styles.trendInspectorPillLabel}>SAVINGS RATE</Text>
+                <Text style={styles.trendInspectorPillValue}>
+                  {activeItem.income > 0 ? `${Math.max(0, Math.round((activeItem.net / activeItem.income) * 100))}%` : '0%'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* SVG CHART */}
+        <Svg width={chartWidth} height={chartHeight + 35} style={{ alignSelf: 'center' }}>
           <Defs>
             <LinearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#10B981" stopOpacity="1" />
-              <Stop offset="1" stopColor="#059669" stopOpacity="0.85" />
+              <Stop offset="0" stopColor="#34D399" stopOpacity="1" />
+              <Stop offset="1" stopColor="#059669" stopOpacity="0.9" />
             </LinearGradient>
             <LinearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#EF4444" stopOpacity="1" />
-              <Stop offset="1" stopColor="#DC2626" stopOpacity="0.85" />
+              <Stop offset="0" stopColor="#F87171" stopOpacity="1" />
+              <Stop offset="1" stopColor="#DC2626" stopOpacity="0.9" />
+            </LinearGradient>
+            <LinearGradient id="activeColGrad" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#3B82F6" stopOpacity="0.12" />
+              <Stop offset="1" stopColor="#3B82F6" stopOpacity="0.02" />
             </LinearGradient>
           </Defs>
 
-          <Line x1="10" y1={chartHeight * 0.25} x2={CHART_WIDTH - 10} y2={chartHeight * 0.25} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <Line x1="10" y1={chartHeight * 0.5} x2={CHART_WIDTH - 10} y2={chartHeight * 0.5} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <Line x1="10" y1={chartHeight * 0.75} x2={CHART_WIDTH - 10} y2={chartHeight * 0.75} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <Line x1="10" y1={chartHeight} x2={CHART_WIDTH - 10} y2={chartHeight} stroke="#E2E8F0" strokeWidth="1" />
+          {/* Reference guidelines with Y-axis markers */}
+          <Line x1={paddingX} y1={chartHeight * 0.2} x2={chartWidth - paddingX} y2={chartHeight * 0.2} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
+          <SvgText x={paddingX} y={chartHeight * 0.2 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{curr}{formatY(maxVal * 0.8)}</SvgText>
+
+          <Line x1={paddingX} y1={chartHeight * 0.55} x2={chartWidth - paddingX} y2={chartHeight * 0.55} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
+          <SvgText x={paddingX} y={chartHeight * 0.55 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{curr}{formatY(maxVal * 0.45)}</SvgText>
+
+          {/* Baseline */}
+          <Line x1={paddingX} y1={chartHeight} x2={chartWidth - paddingX} y2={chartHeight} stroke="#E2E8F0" strokeWidth="1.2" />
 
           {monthlyTrends.map((item, idx) => {
-            const xCenter = idx * gap + gap / 2;
-            const incH = (item.income / maxVal) * (chartHeight - 15);
-            const expH = (item.expense / maxVal) * (chartHeight - 15);
+            const xCenter = paddingX + idx * gap + gap / 2;
+            const isSelected = selectedTrendIndex === idx;
+            const incH = Math.min((item.income / maxVal) * (chartHeight - 20), chartHeight - 10);
+            const expH = Math.min((item.expense / maxVal) * (chartHeight - 20), chartHeight - 10);
+            const colWidth = Math.max(gap - 4, 30);
 
             return (
               <G key={item.label}>
+                {/* Active Column Highlight Pillar */}
+                {isSelected && (
+                  <Rect
+                    x={xCenter - colWidth / 2}
+                    y={6}
+                    width={colWidth}
+                    height={chartHeight - 4}
+                    rx={10}
+                    fill="url(#activeColGrad)"
+                    stroke="#BFDBFE"
+                    strokeWidth="1"
+                  />
+                )}
+
+                {/* Touch Area Covering Entire Column */}
+                <Rect
+                  x={xCenter - colWidth / 2}
+                  y={0}
+                  width={colWidth}
+                  height={chartHeight + 35}
+                  fill="transparent"
+                  onPress={() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx)}
+                />
+
                 {/* Income Bar */}
                 <Rect
                   x={xCenter - barWidth - 2}
                   y={chartHeight - incH}
                   width={barWidth}
-                  height={Math.max(incH, 3)}
-                  rx={4}
+                  height={Math.max(incH, 4)}
+                  rx={5}
                   fill="url(#incomeGrad)"
+                  onPress={() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx)}
                 />
+
                 {/* Expense Bar */}
                 <Rect
                   x={xCenter + 2}
                   y={chartHeight - expH}
                   width={barWidth}
-                  height={Math.max(expH, 3)}
-                  rx={4}
+                  height={Math.max(expH, 4)}
+                  rx={5}
                   fill="url(#expenseGrad)"
+                  onPress={() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx)}
                 />
+
+                {/* Net Savings Dot Indicator */}
+                {item.income > 0 && item.expense > 0 && (
+                  <Circle
+                    cx={xCenter}
+                    cy={Math.min(chartHeight - incH, chartHeight - expH) - 8}
+                    r={isSelected ? 3.5 : 2.5}
+                    fill={item.net >= 0 ? '#10B981' : '#EF4444'}
+                    stroke="#FFFFFF"
+                    strokeWidth={1}
+                  />
+                )}
+
                 {/* Month Label */}
                 <SvgText
                   x={xCenter}
                   y={chartHeight + 20}
-                  fontSize="11"
-                  fontWeight="700"
-                  fill="#64748B"
+                  fontSize={isSelected ? '12' : '11'}
+                  fontWeight={isSelected ? '900' : '700'}
+                  fill={isSelected ? '#0F172A' : '#64748B'}
                   textAnchor="middle"
+                  onPress={() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx)}
                 >
                   {item.label}
                 </SvgText>
+
+                {/* Active Indicator Underline */}
+                {isSelected && (
+                  <Line
+                    x1={xCenter - 10}
+                    y1={chartHeight + 25}
+                    x2={xCenter + 10}
+                    y2={chartHeight + 25}
+                    stroke="#2563EB"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                )}
               </G>
             );
           })}
@@ -805,12 +1527,12 @@ export default function ReportsScreen() {
             ) : (
               <>
                 <Text style={styles.donutCenterLabel}>
-                  {categoryType === 'expense' ? 'Total Spent' : 'Total Income'}
+                  {categoryType === 'expense' ? t('total_spent') : t('total_income_label')}
                 </Text>
                 <Text style={styles.donutCenterAmount} numberOfLines={1}>
                   {curr}{totalAmount > 99999 ? (totalAmount / 1000).toFixed(1) + 'k' : totalAmount.toLocaleString('en-IN')}
                 </Text>
-                <Text style={styles.donutTapHint}>Tap slice to inspect</Text>
+                <Text style={styles.donutTapHint}>{t('tap_slice')}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -847,7 +1569,7 @@ export default function ReportsScreen() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color="#1C1C1E" />
-          <Text style={styles.loadingText}>Loading Analytics...</Text>
+          <Text style={styles.loadingText}>{t('loading_analytics')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -859,12 +1581,22 @@ export default function ReportsScreen() {
 
       {/* HEADER WITH THEMED BRAND ACCENT */}
       <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.screenTitle}>Financial Reports</Text>
-          <Text style={styles.screenSubtitle}>Income, expense & spending analytics</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.screenTitle}>{t('financial_reports')}</Text>
+          <Text style={styles.screenSubtitle}>{t('income_expense_analytics')}</Text>
         </View>
-        <TouchableOpacity style={styles.shareBtn} onPress={handleShareReport} activeOpacity={0.75}>
-          <Ionicons name="share-outline" size={18} color="#1C1C1E" />
+
+        <TouchableOpacity
+          style={styles.shareBtn}
+          onPress={() => setShowExportModal(true)}
+          activeOpacity={0.75}
+          disabled={isGeneratingPDF}
+        >
+          {isGeneratingPDF ? (
+            <ActivityIndicator size="small" color="#0F172A" />
+          ) : (
+            <Ionicons name="share-social-outline" size={18} color="#1C1C1E" />
+          )}
         </TouchableOpacity>
       </View>
 
@@ -874,36 +1606,42 @@ export default function ReportsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1C1C1E" />}
       >
         <Animated.View style={{ opacity: fadeAnim }}>
-          {/* COMPACT PERIOD FILTER BAR (FITS FULL SCREEN) */}
-          <View style={styles.periodSegmentContainer}>
-            {[
-              { key: 'this_month', label: 'Month' },
-              { key: 'last_month', label: 'Last Mo' },
-              { key: '3_months', label: '3 Mo' },
-              { key: 'this_year', label: 'Year' },
-              { key: 'all', label: 'All' },
-            ].map(p => {
-              const isSel = period === p.key;
-              return (
-                <TouchableOpacity
-                  key={p.key}
-                  style={[styles.periodSegmentBtn, isSel && styles.periodSegmentBtnActive]}
-                  onPress={() => {
-                    setPeriod(p.key as PeriodType);
-                    setSelectedPointIndex(null);
-                    setSelectedCategory(null);
-                  }}
-                  activeOpacity={0.75}
-                >
-                  <Text
-                    style={[styles.periodSegmentText, isSel && styles.periodSegmentTextActive]}
-                    numberOfLines={1}
+          {/* COMPACT PERIOD FILTER BAR (RESPONSIVE HORIZONTAL SCROLL ON MOBILE) */}
+          <View style={styles.periodSegmentWrapper}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.periodScrollContent}
+            >
+              {[
+                { key: 'this_month', label: t('period_month') },
+                { key: 'last_month', label: t('period_last_mo') },
+                { key: '3_months', label: t('period_3mo') },
+                { key: 'this_year', label: t('period_year') },
+                { key: 'all', label: t('period_all') },
+              ].map(p => {
+                const isSel = period === p.key;
+                return (
+                  <TouchableOpacity
+                    key={p.key}
+                    style={[styles.periodSegmentBtn, isSel && styles.periodSegmentBtnActive]}
+                    onPress={() => {
+                      setPeriod(p.key as PeriodType);
+                      setSelectedPointIndex(null);
+                      setSelectedCategory(null);
+                    }}
+                    activeOpacity={0.75}
                   >
-                    {p.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                    <Text
+                      style={[styles.periodSegmentText, isSel && styles.periodSegmentTextActive]}
+                      numberOfLines={1}
+                    >
+                      {p.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
 
           {/* HERO NET SAVINGS CARD */}
@@ -915,12 +1653,12 @@ export default function ReportsScreen() {
             <View style={styles.heroTopRow}>
               <View style={styles.heroNetLabelWrap}>
                 <Ionicons name="sparkles" size={12} color="#0F172A" style={{ marginRight: 4 }} />
-                <Text style={styles.heroNetLabel}>NET SAVINGS</Text>
+                <Text style={styles.heroNetLabel}>{t('net_savings')}</Text>
               </View>
 
               <View style={styles.heroSavingsBadge}>
                 <Ionicons name="trending-up" size={13} color="#0F172A" style={{ marginRight: 4 }} />
-                <Text style={styles.heroSavingsBadgeText}>{metrics.savingsRate}% Saved</Text>
+                <Text style={styles.heroSavingsBadgeText}>{metrics.savingsRate}% {t('saved_pct')}</Text>
               </View>
             </View>
 
@@ -931,45 +1669,176 @@ export default function ReportsScreen() {
               </Text>
             </View>
 
-            {/* Income, Expense & Daily Average Split 3-Card Grid */}
+            {/* Income, Expense & Daily Average Split 3-Card Grid (Mobile Responsive Stacked) */}
             <View style={styles.heroCashflowRow}>
               <View style={styles.heroIncomeCard}>
-                <View style={styles.heroIncomeIconCircle}>
-                  <Ionicons name="arrow-up" size={12} color="#16A34A" />
+                <View style={styles.heroCardHeaderMini}>
+                  <View style={styles.heroIncomeIconCircle}>
+                    <Ionicons name="arrow-up" size={10} color="#16A34A" />
+                  </View>
+                  <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('income')}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.heroInnerCardLabel}>Income</Text>
-                  <Text style={styles.heroIncomeAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-                    +{curr}{metrics.income.toLocaleString('en-IN')}
-                  </Text>
-                </View>
+                <Text style={styles.heroIncomeAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
+                  +{curr}{metrics.income.toLocaleString('en-IN')}
+                </Text>
               </View>
 
               <View style={styles.heroExpenseCard}>
-                <View style={styles.heroExpenseIconCircle}>
-                  <Ionicons name="arrow-down" size={12} color="#DC2626" />
+                <View style={styles.heroCardHeaderMini}>
+                  <View style={styles.heroExpenseIconCircle}>
+                    <Ionicons name="arrow-down" size={10} color="#DC2626" />
+                  </View>
+                  <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('expenses')}</Text>
+                </View>
+                <Text style={styles.heroExpenseAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
+                  -{curr}{metrics.expense.toLocaleString('en-IN')}
+                </Text>
+              </View>
+
+              <View style={styles.heroDailyCard}>
+                <View style={styles.heroCardHeaderMini}>
+                  <View style={styles.heroDailyIconCircle}>
+                    <Ionicons name="calendar-outline" size={10} color="#6366F1" />
+                  </View>
+                  <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('daily_avg')}</Text>
+                </View>
+                <Text style={styles.heroDailyAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
+                  {curr}{metrics.dailyAvg.toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          {/* MONTH-OVER-MONTH VELOCITY & PACE COMPARISON */}
+          <View style={styles.velocityCard}>
+            <View style={styles.velocityHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 }}>
+                <View style={styles.velocityIconCircle}>
+                  <Ionicons name="speedometer-outline" size={16} color="#4F46E5" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.heroInnerCardLabel}>Expense</Text>
-                  <Text style={styles.heroExpenseAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-                    -{curr}{metrics.expense.toLocaleString('en-IN')}
+                  <Text style={styles.velocityCardTitle} numberOfLines={1}>{t('spending_velocity')}</Text>
+                  <Text style={styles.velocityCardSub} numberOfLines={1}>
+                    {period === 'this_month' ? t('current_vs_last') : t('comparative_trend')}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.heroDailyCard}>
-                <View style={styles.heroDailyIconCircle}>
-                  <Ionicons name="calendar-outline" size={12} color="#6366F1" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.heroInnerCardLabel}>Daily Avg</Text>
-                  <Text style={styles.heroDailyAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-                    {curr}{metrics.dailyAvg.toLocaleString('en-IN')}
+              {prevPeriodMetrics.hasPrevData ? (
+                <View
+                  style={[
+                    styles.velocityPill,
+                    prevPeriodMetrics.isHigher ? styles.velocityPillHigher : styles.velocityPillLower,
+                  ]}
+                >
+                  <Ionicons
+                    name={prevPeriodMetrics.isHigher ? 'trending-up' : 'trending-down'}
+                    size={13}
+                    color={prevPeriodMetrics.isHigher ? '#DC2626' : '#16A34A'}
+                    style={{ marginRight: 3 }}
+                  />
+                  <Text
+                    style={[
+                      styles.velocityPillText,
+                      prevPeriodMetrics.isHigher ? styles.velocityTextHigher : styles.velocityTextLower,
+                    ]}
+                  >
+                    {prevPeriodMetrics.diffPct}% {prevPeriodMetrics.isHigher ? t('more_spending') : t('less_spending')}
                   </Text>
                 </View>
+              ) : (
+                <View style={styles.velocityPillNeutral}>
+                  <Text style={styles.velocityPillNeutralText}>{t('first_period')}</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.velocityStatsGrid}>
+              <View style={styles.velocityStatBox}>
+                <Text style={styles.velocityStatLabel}>{t('projected_month')}</Text>
+                <Text style={styles.velocityStatValue}>{curr}{prevPeriodMetrics.projectedSpend.toLocaleString('en-IN')}</Text>
+                <Text style={styles.velocityStatHint}>at {curr}{metrics.dailyAvg}/day pace</Text>
+              </View>
+
+              <View style={styles.velocityStatDivider} />
+
+              <View style={styles.velocityStatBox}>
+                <Text style={styles.velocityStatLabel}>{t('previous_period')}</Text>
+                <Text style={styles.velocityStatValue}>
+                  {curr}{prevPeriodMetrics.prevExpense.toLocaleString('en-IN')}
+                </Text>
+                <Text style={styles.velocityStatHint}>
+                  {prevPeriodMetrics.hasPrevData
+                    ? `${prevPeriodMetrics.isHigher ? '+' : '-'}${curr}${Math.abs(prevPeriodMetrics.diff).toLocaleString('en-IN')} change`
+                    : t('no_prior_data')}
+                </Text>
               </View>
             </View>
-          </Animated.View>
+          </View>
+
+          {/* 50 / 30 / 20 FINANCIAL BUDGET HEALTH RULE */}
+          <View style={styles.ruleCard}>
+            <View style={styles.ruleHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 }}>
+                <View style={styles.ruleIconCircle}>
+                  <Ionicons name="pie-chart-outline" size={16} color="#0D9488" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.ruleCardTitle} numberOfLines={1}>{t('budget_rule')}</Text>
+                  <Text style={styles.ruleCardSub} numberOfLines={1}>{t('budget_rule_sub')}</Text>
+                </View>
+              </View>
+
+              <View style={styles.ruleBadge}>
+                <Text style={styles.ruleBadgeText} numberOfLines={1}>
+                  {rule503020.needsPct <= 55 && rule503020.savingsPct >= 15 ? t('budget_balanced') : t('budget_needs_review')}
+                </Text>
+              </View>
+            </View>
+
+            {/* Tripartite Segmented Bar */}
+            <View style={styles.ruleBarTrack}>
+              <View style={[styles.ruleBarSegment, { flex: Math.max(rule503020.needsPct, 2), backgroundColor: '#3B82F6' }]} />
+              <View style={[styles.ruleBarSegment, { flex: Math.max(rule503020.wantsPct, 2), backgroundColor: '#F59E0B' }]} />
+              <View style={[styles.ruleBarSegment, { flex: Math.max(rule503020.savingsPct, 2), backgroundColor: '#10B981' }]} />
+            </View>
+
+            {/* 3 Pillars */}
+            <View style={styles.rulePillarsRow}>
+              <View style={styles.rulePillarCol}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                  <View style={[styles.ruleDot, { backgroundColor: '#3B82F6' }]} />
+                  <Text style={styles.rulePillarName} numberOfLines={1}>{t('needs_label')}</Text>
+                </View>
+                <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                  {curr}{rule503020.needsAmt.toLocaleString('en-IN')}
+                </Text>
+                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.needsPct}% of budget</Text>
+              </View>
+
+              <View style={styles.rulePillarCol}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                  <View style={[styles.ruleDot, { backgroundColor: '#F59E0B' }]} />
+                  <Text style={styles.rulePillarName} numberOfLines={1}>{t('wants_label')}</Text>
+                </View>
+                <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                  {curr}{rule503020.wantsAmt.toLocaleString('en-IN')}
+                </Text>
+                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.wantsPct}% of budget</Text>
+              </View>
+
+              <View style={styles.rulePillarCol}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                  <View style={[styles.ruleDot, { backgroundColor: '#10B981' }]} />
+                  <Text style={styles.rulePillarName} numberOfLines={1}>{t('savings_label')}</Text>
+                </View>
+                <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                  {curr}{rule503020.savingsAmt.toLocaleString('en-IN')}
+                </Text>
+                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.savingsPct}% saved</Text>
+              </View>
+            </View>
+          </View>
 
           {/* SMART AI FINANCIAL HEALTH & ADVISOR CARD */}
           <View style={styles.aiHealthCard}>
@@ -979,8 +1848,8 @@ export default function ReportsScreen() {
                   <Ionicons name="sparkles" size={15} color={financialHealth.color} />
                 </View>
                 <View>
-                  <Text style={styles.aiHealthTitle}>Financial Vitality</Text>
-                  <Text style={styles.aiHealthSub}>AI Budget & Habits Analysis</Text>
+                  <Text style={styles.aiHealthTitle}>{t('financial_vitality')}</Text>
+                  <Text style={styles.aiHealthSub}>{t('ai_analysis')}</Text>
                 </View>
               </View>
               <View style={[styles.healthScoreBadge, { backgroundColor: financialHealth.color + '15', borderColor: financialHealth.color + '40' }]}>
@@ -1015,9 +1884,9 @@ export default function ReportsScreen() {
               onPress={() => setChartView('donut')}
               activeOpacity={0.8}
             >
-              <Ionicons name="pie-chart" size={14} color={chartView === 'donut' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 5 }} />
-              <Text style={[styles.chartViewText, chartView === 'donut' && styles.chartViewTextActive]}>
-                Categories
+              <Ionicons name="pie-chart" size={13} color={chartView === 'donut' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 4 }} />
+              <Text style={[styles.chartViewText, chartView === 'donut' && styles.chartViewTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                {t('expense_breakdown')}
               </Text>
             </TouchableOpacity>
 
@@ -1026,9 +1895,9 @@ export default function ReportsScreen() {
               onPress={() => setChartView('curve')}
               activeOpacity={0.8}
             >
-              <Ionicons name="analytics" size={14} color={chartView === 'curve' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 5 }} />
-              <Text style={[styles.chartViewText, chartView === 'curve' && styles.chartViewTextActive]}>
-                Trend Curve
+              <Ionicons name="analytics" size={13} color={chartView === 'curve' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 4 }} />
+              <Text style={[styles.chartViewText, chartView === 'curve' && styles.chartViewTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                {t('spending_wave')}
               </Text>
             </TouchableOpacity>
 
@@ -1037,9 +1906,9 @@ export default function ReportsScreen() {
               onPress={() => setChartView('bars')}
               activeOpacity={0.8}
             >
-              <Ionicons name="bar-chart" size={14} color={chartView === 'bars' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 5 }} />
-              <Text style={[styles.chartViewText, chartView === 'bars' && styles.chartViewTextActive]}>
-                Monthly Bars
+              <Ionicons name="bar-chart" size={13} color={chartView === 'bars' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 4 }} />
+              <Text style={[styles.chartViewText, chartView === 'bars' && styles.chartViewTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                {t('cash_flow_trends')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1052,7 +1921,7 @@ export default function ReportsScreen() {
               <View style={styles.categoryChartHeader}>
                 <View>
                   <Text style={styles.themeCardTitle}>
-                    {categoryType === 'expense' ? 'Expense Distribution' : 'Income Distribution'}
+                    {categoryType === 'expense' ? t('expense_breakdown') : t('income_breakdown')}
                   </Text>
                   <Text style={styles.themeCardSub}>
                     {selectedCategory ? `Viewing "${selectedCategory}" details` : 'Tap on any slice to inspect category share'}
@@ -1085,8 +1954,8 @@ export default function ReportsScreen() {
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeaderBetween}>
               <View>
-                <Text style={styles.cardHeading}>Category Breakdown</Text>
-                <Text style={styles.cardSub}>Detailed spend by category</Text>
+                <Text style={styles.cardHeading}>{t('top_categories')}</Text>
+                <Text style={styles.cardSub}>{t('by_category')}</Text>
               </View>
 
               {/* Expense vs Income Switcher Pills */}
@@ -1100,7 +1969,7 @@ export default function ReportsScreen() {
                   activeOpacity={0.8}
                 >
                   <Text style={[styles.catTypeText, categoryType === 'expense' && styles.catTypeTextActiveExpense]}>
-                    Expense
+                    {t('type_expense')}
                   </Text>
                 </TouchableOpacity>
 
@@ -1113,7 +1982,7 @@ export default function ReportsScreen() {
                   activeOpacity={0.8}
                 >
                   <Text style={[styles.catTypeText, categoryType === 'income' && styles.catTypeTextActiveIncome]}>
-                    Income
+                    {t('type_income')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1133,8 +2002,8 @@ export default function ReportsScreen() {
                       key={cat.name}
                       style={[styles.categoryRow, isSel && styles.categoryRowSelected]}
                       onPress={() => {
+                        setSelectedCategoryDetail(cat);
                         setSelectedCategory(isSel ? null : cat.name);
-                        setChartView('donut');
                       }}
                       activeOpacity={0.7}
                     >
@@ -1158,7 +2027,7 @@ export default function ReportsScreen() {
                         </View>
                         <View style={styles.categoryBottomRow}>
                           <Text style={styles.categoryPercentText}>{cat.percentage}% of total {categoryType}</Text>
-                          <Text style={styles.categoryTxnCount}>{cat.count} txns</Text>
+                          <Text style={styles.categoryTxnCount}>{cat.count} txns • View Details →</Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -1171,8 +2040,8 @@ export default function ReportsScreen() {
           {/* PAYMENT MODES SPLIT */}
           {paymentModesSplit.length > 0 && (
             <View style={styles.sectionCard}>
-              <Text style={styles.cardHeading}>Payment Methods</Text>
-              <Text style={styles.cardSub}>Mode of payment used for expenses</Text>
+              <Text style={styles.cardHeading}>{t('payment_split')}</Text>
+              <Text style={styles.cardSub}>{t('how_you_pay')}</Text>
 
               {/* Segmented Bar */}
               <View style={styles.paymentBarContainer}>
@@ -1211,10 +2080,49 @@ export default function ReportsScreen() {
             </View>
           )}
 
+          {/* WEEKEND VS WEEKDAY SPENDING PATTERN */}
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeaderBetween}>
+              <View>
+                <Text style={styles.cardHeading}>{t('weekday_vs_weekend')}</Text>
+                <Text style={styles.cardSub}>{t('day_pattern')}</Text>
+              </View>
+              <View style={[styles.weekendRatioPill, weekendVsWeekday.weekendPct >= 50 && styles.weekendRatioPillHeavy]}>
+                <Text style={[styles.weekendRatioText, weekendVsWeekday.weekendPct >= 50 && styles.weekendRatioTextHeavy]}>
+                  {weekendVsWeekday.weekendPct >= 50 ? 'Weekend Heavy 🏖️' : 'Weekday Heavy 💼'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.weekendVsWeekdayRow}>
+              <View style={styles.weekSplitCard}>
+                <View style={styles.weekSplitIconCircle}>
+                  <Ionicons name="briefcase-outline" size={16} color="#2563EB" />
+                </View>
+                <Text style={styles.weekSplitLabel}>Weekdays (Mon–Fri)</Text>
+                <Text style={styles.weekSplitAmount}>{curr}{weekendVsWeekday.weekdayTotal.toLocaleString('en-IN')}</Text>
+                <Text style={styles.weekSplitSub}>
+                  {weekendVsWeekday.weekdayPct}% • {weekendVsWeekday.weekdayCount} txns
+                </Text>
+              </View>
+
+              <View style={styles.weekSplitCard}>
+                <View style={[styles.weekSplitIconCircle, { backgroundColor: '#FEF3C7' }]}>
+                  <Ionicons name="sparkles-outline" size={16} color="#D97706" />
+                </View>
+                <Text style={styles.weekSplitLabel}>Weekends (Sat–Sun)</Text>
+                <Text style={styles.weekSplitAmount}>{curr}{weekendVsWeekday.weekendTotal.toLocaleString('en-IN')}</Text>
+                <Text style={styles.weekSplitSub}>
+                  {weekendVsWeekday.weekendPct}% • {weekendVsWeekday.weekendCount} txns
+                </Text>
+              </View>
+            </View>
+          </View>
+
           {/* DAY-OF-WEEK SPENDING WAVE */}
           <View style={styles.sectionCard}>
-            <Text style={styles.cardHeading}>Day-of-Week Spending</Text>
-            <Text style={styles.cardSub}>Pattern of your spending across days</Text>
+            <Text style={styles.cardHeading}>{t('day_pattern')}</Text>
+            <Text style={styles.cardSub}>{t('peak_day')}</Text>
 
             <View style={styles.dayOfWeekRow}>
               {dayOfWeekSpend.map(d => (
@@ -1239,8 +2147,8 @@ export default function ReportsScreen() {
           {/* LARGEST EXPENSES */}
           {topExpenses.length > 0 && (
             <View style={styles.sectionCard}>
-              <Text style={styles.cardHeading}>Largest Expenses</Text>
-              <Text style={styles.cardSub}>Top transactions during this period</Text>
+              <Text style={styles.cardHeading}>{t('top_expenses_title')}</Text>
+              <Text style={styles.cardSub}>{t('biggest_hits')}</Text>
 
               <View style={styles.topExpenseList}>
                 {topExpenses.map((tx, idx) => (
@@ -1268,6 +2176,139 @@ export default function ReportsScreen() {
           <View style={{ height: 110 }} />
         </Animated.View>
       </ScrollView>
+
+      {/* CATEGORY DRILL-DOWN MODAL */}
+      <Modal
+        visible={!!selectedCategoryDetail}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedCategoryDetail(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentLarge}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={[styles.categoryIconCircle, { backgroundColor: (selectedCategoryDetail?.color || '#3B82F6') + '20', marginRight: 10 }]}>
+                  <CategoryIcon
+                    categoryName={selectedCategoryDetail?.name || ''}
+                    iconName={selectedCategoryDetail?.icon || 'receipt'}
+                    color={selectedCategoryDetail?.color || '#3B82F6'}
+                    size={22}
+                  />
+                </View>
+                <View>
+                  <Text style={styles.drillModalTitle}>{selectedCategoryDetail?.name} Breakdown</Text>
+                  <Text style={styles.drillModalSubTitle}>{curr}{selectedCategoryDetail?.amount.toLocaleString('en-IN')} total • {selectedCategoryDetail?.count} txns</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setSelectedCategoryDetail(null)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={20} color="#1C1C1E" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 380, marginTop: 10 }}>
+              {filteredTransactions
+                .filter(t => (t.category || '').toLowerCase() === (selectedCategoryDetail?.name || '').toLowerCase() && t.type === categoryType)
+                .map((tx, idx) => (
+                  <View key={tx.id || String(idx)} style={styles.drillDownItem}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={styles.drillDownTitle} numberOfLines={1}>{tx.title || tx.category}</Text>
+                      <Text style={styles.drillDownDate}>{tx.date} • {tx.payment_mode || 'UPI'}</Text>
+                    </View>
+                    <Text style={[styles.drillDownAmount, categoryType === 'income' ? styles.drillDownAmountIncome : styles.drillDownAmountExpense]}>
+                      {categoryType === 'income' ? '+' : '-'}{curr}{Math.abs(tx.amount).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* EXPORT OPTIONS MODAL */}
+      <Modal
+        visible={showExportModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowExportModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowExportModal(false)}
+        >
+          <View style={styles.exportModalContent}>
+            <View style={styles.exportModalHeader}>
+              <Ionicons name="share-social" size={22} color="#0F172A" style={{ marginRight: 8 }} />
+              <Text style={styles.exportModalTitle}>Share & Export Report</Text>
+            </View>
+            <Text style={styles.exportModalSub}>
+              Download your complete financial statement or share an executive summary.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.exportOptionRow}
+              onPress={handleExportPDF}
+              activeOpacity={0.7}
+              disabled={isGeneratingPDF}
+            >
+              <View style={[styles.exportOptionIconCircle, { backgroundColor: '#FEE2E2' }]}>
+                {isGeneratingPDF ? (
+                  <ActivityIndicator size="small" color="#DC2626" />
+                ) : (
+                  <Ionicons name="document" size={20} color="#DC2626" />
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.exportOptionTitle}>Multi-Page PDF Statement</Text>
+                <Text style={styles.exportOptionSub}>Official 3-page HD statement with KPIs, charts & ledger</Text>
+              </View>
+              <Ionicons name="download-outline" size={18} color="#64748B" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.exportOptionRow}
+              onPress={handleExportCSV}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconCircle, { backgroundColor: '#E0E7FF' }]}>
+                <Ionicons name="document-text" size={20} color="#4F46E5" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.exportOptionTitle}>Export CSV Spreadsheet</Text>
+                <Text style={styles.exportOptionSub}>Excel & Google Sheets compatible ledger</Text>
+              </View>
+              <Ionicons name="download-outline" size={18} color="#64748B" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.exportOptionRow}
+              onPress={() => {
+                setShowExportModal(false);
+                handleShareReport();
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.exportOptionIconCircle, { backgroundColor: '#DCFCE7' }]}>
+                <Ionicons name="chatbubbles" size={20} color="#16A34A" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.exportOptionTitle}>Share Executive Summary</Text>
+                <Text style={styles.exportOptionSub}>Send formatted text report via WhatsApp, Email, etc.</Text>
+              </View>
+              <Ionicons name="paper-plane-outline" size={18} color="#64748B" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.exportCancelBtn}
+              onPress={() => setShowExportModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.exportCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1327,20 +2368,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 6,
   },
-  periodSegmentContainer: {
-    flexDirection: 'row',
+  periodSegmentWrapper: {
     backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    padding: 3,
+    borderRadius: 14,
+    padding: 4,
     marginBottom: 14,
-    gap: 3,
+  },
+  periodScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 2,
   },
   periodSegmentBtn: {
-    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 7,
-    borderRadius: 9,
   },
   periodSegmentBtnActive: {
     backgroundColor: '#1C1C1E',
@@ -1351,7 +2396,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   periodSegmentText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     color: '#64748B',
   },
@@ -1363,7 +2408,7 @@ const styles = StyleSheet.create({
   // HERO NET SAVINGS CARD - ANIMATED PASTEL THEME
   heroOverviewCard: {
     borderRadius: 26,
-    padding: 20,
+    padding: 18,
     marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.7)',
@@ -1386,15 +2431,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   heroNetLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.08)',
     shadowColor: '#000',
@@ -1407,7 +2452,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '900',
     color: '#0F172A',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   heroSavingsBadge: {
     flexDirection: 'row',
@@ -1415,9 +2460,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.08)',
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 1 },
@@ -1430,26 +2475,30 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   heroAmountWrap: {
-    marginBottom: 16,
+    marginBottom: 14,
   },
   heroNetValue: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: -0.8,
   },
   heroCashflowRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
+  },
+  heroCardHeaderMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 4,
   },
   heroIncomeCard: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 9,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 7,
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.06)',
     shadowColor: '#000',
@@ -1459,22 +2508,19 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   heroIncomeIconCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
   },
   heroExpenseCard: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 9,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 7,
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.06)',
     shadowColor: '#000',
@@ -1484,22 +2530,19 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   heroExpenseIconCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#FEE2E2',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
   },
   heroDailyCard: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 9,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 7,
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.06)',
     shadowColor: '#000',
@@ -1509,34 +2552,33 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   heroDailyIconCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
   },
   heroInnerCardLabel: {
     fontSize: 9,
     fontWeight: '800',
     color: '#64748B',
     textTransform: 'uppercase',
-    letterSpacing: 0.3,
-    marginBottom: 2,
+    letterSpacing: 0.2,
+    flex: 1,
   },
   heroIncomeAmount: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
     color: '#16A34A',
   },
   heroExpenseAmount: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
     color: '#DC2626',
   },
   heroDailyAmount: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
     color: '#0F172A',
   },
@@ -1646,6 +2688,273 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#64748B',
+  },
+
+  // CASH FLOW TRENDS ENHANCEMENTS
+  trendLiveBadge: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  trendLiveBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#2563EB',
+    textTransform: 'uppercase',
+  },
+  trendSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  trendSummaryCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  trendSummaryDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: '#E2E8F0',
+  },
+  trendSummaryLabel: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  trendSummaryValue: {
+    fontSize: 12.5,
+    fontWeight: '900',
+  },
+  trendInspectorCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  trendInspectorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  trendInspectorIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trendInspectorTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  trendNetBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  trendNetBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  trendInspectorPillsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  trendInspectorPillIn: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    alignItems: 'center',
+  },
+  trendInspectorPillOut: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+    alignItems: 'center',
+  },
+  trendInspectorPillRate: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+  },
+  trendInspectorPillLabel: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  trendInspectorPillValue: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+
+  // SPENDING WAVE ENHANCEMENTS
+  waveLiveBadge: {
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  waveLiveBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#D97706',
+    textTransform: 'uppercase',
+  },
+  wavePeakSummaryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  wavePeakSummaryText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  waveSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  waveSummaryCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  waveSummaryDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: '#E2E8F0',
+  },
+  waveSummaryLabel: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  waveSummaryValue: {
+    fontSize: 12.5,
+    fontWeight: '900',
+  },
+  waveInspectorCard: {
+    backgroundColor: '#FFFDF7',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    shadowColor: '#D97706',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  waveInspectorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  waveInspectorIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  waveInspectorTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  waveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  waveBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  waveInspectorPillsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  waveInspectorPillItem: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    alignItems: 'center',
+  },
+  waveInspectorPillLabel: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  waveInspectorPillValue: {
+    fontSize: 12,
+    fontWeight: '900',
   },
 
   // SMART AI FINANCIAL HEALTH CARD
@@ -2118,5 +3427,445 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
     color: '#EF4444',
+  },
+
+  // PDF, CSV & HEADER
+  pdfExportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    shadowColor: '#EF4444',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  pdfExportBtnText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#DC2626',
+  },
+  csvExportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  csvExportBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+
+  // VELOCITY CARD
+  velocityCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#64748B',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  velocityHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  velocityIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  velocityCardTitle: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  velocityCardSub: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  velocityPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  velocityPillLower: {
+    backgroundColor: '#DCFCE7',
+  },
+  velocityPillHigher: {
+    backgroundColor: '#FEE2E2',
+  },
+  velocityPillText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  velocityTextLower: {
+    color: '#16A34A',
+  },
+  velocityTextHigher: {
+    color: '#DC2626',
+  },
+  velocityPillNeutral: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  velocityPillNeutralText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  velocityStatsGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+  },
+  velocityStatBox: {
+    flex: 1,
+  },
+  velocityStatDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 12,
+  },
+  velocityStatLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  velocityStatValue: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginTop: 2,
+  },
+  velocityStatHint: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+
+  // 50/30/20 RULE
+  ruleCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#64748B',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  ruleHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  ruleIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: '#CCFBF1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  ruleCardTitle: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  ruleCardSub: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  ruleBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  ruleBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  ruleBarTrack: {
+    flexDirection: 'row',
+    height: 10,
+    borderRadius: 5,
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+    marginBottom: 14,
+    gap: 2,
+  },
+  ruleBarSegment: {
+    height: '100%',
+    borderRadius: 5,
+  },
+  rulePillarsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  rulePillarCol: {
+    flex: 1,
+  },
+  ruleDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 5,
+  },
+  rulePillarName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  rulePillarValue: {
+    fontSize: 13.5,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginTop: 2,
+  },
+  rulePillarPct: {
+    fontSize: 10.5,
+    color: '#94A3B8',
+    marginTop: 1,
+  },
+
+  // WEEKEND VS WEEKDAY
+  weekendRatioPill: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  weekendRatioPillHeavy: {
+    backgroundColor: '#FEF3C7',
+  },
+  weekendRatioText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  weekendRatioTextHeavy: {
+    color: '#D97706',
+  },
+  weekendVsWeekdayRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  weekSplitCard: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  weekSplitIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  weekSplitLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  weekSplitAmount: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  weekSplitSub: {
+    fontSize: 10.5,
+    color: '#94A3B8',
+  },
+
+  // DRILL DOWN & EXPORT MODALS
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContentLarge: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    padding: 20,
+    maxHeight: '85%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  drillModalTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  drillModalSubTitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  drillDownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  drillDownTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  drillDownDate: {
+    fontSize: 11.5,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  drillDownAmount: {
+    fontSize: 14.5,
+    fontWeight: '900',
+  },
+  drillDownAmountExpense: {
+    color: '#EF4444',
+  },
+  drillDownAmountIncome: {
+    color: '#10B981',
+  },
+
+  // EXPORT MODAL CONTENT
+  exportModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 22,
+    marginHorizontal: 20,
+    marginBottom: 40,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  exportModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  exportModalTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  exportModalSub: {
+    fontSize: 12.5,
+    color: '#64748B',
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  exportOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  exportOptionIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  exportOptionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  exportOptionSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  exportCancelBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginTop: 6,
+  },
+  exportCancelText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#64748B',
   },
 });

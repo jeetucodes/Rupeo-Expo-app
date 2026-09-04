@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,9 +13,11 @@ import {
   Animated,
   Easing,
   StatusBar,
+  Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { insertTransaction, getUserCategories, CategoryItem, defaultCategories } from '@/lib/database';
@@ -57,6 +59,122 @@ const PAYMENT_MODES = [
 ];
 
 const QUICK_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
+
+import {
+  QuickPresetItem,
+  PRESET_ICONS,
+  DEFAULT_QUICK_COMBOS_EXPENSE,
+  DEFAULT_QUICK_COMBOS_INCOME,
+  fetchCustomPresets,
+  saveCustomPresetItem,
+  removeCustomPresetItem,
+  fetchHiddenPresetIds,
+} from '@/lib/quickPresets';
+
+const QUICK_TILES_EXPENSE = [
+  {
+    id: 'chai',
+    label: 'Chai & Snacks',
+    category: 'Food',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Food/Hot%20Beverage.png',
+    color: '#D97706',
+  },
+  {
+    id: 'food',
+    label: 'Food & Dining',
+    category: 'Food',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Food/Pizza.png',
+    color: '#EA580C',
+  },
+  {
+    id: 'groceries',
+    label: 'Groceries',
+    category: 'Groceries',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shopping%20Cart.png',
+    color: '#16A34A',
+  },
+  {
+    id: 'petrol',
+    label: 'Petrol & Fuel',
+    category: 'Transport',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Fuel%20Pump.png',
+    color: '#DC2626',
+  },
+  {
+    id: 'cab',
+    label: 'Cab & Auto',
+    category: 'Transport',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Taxi.png',
+    color: '#CA8A04',
+  },
+  {
+    id: 'recharge',
+    label: 'Recharge / Bills',
+    category: 'Bills',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Mobile%20Phone.png',
+    color: '#2563EB',
+  },
+  {
+    id: 'shopping',
+    label: 'Shopping',
+    category: 'Shopping',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shopping%20Bags.png',
+    color: '#9333EA',
+  },
+  {
+    id: 'medicines',
+    label: 'Medicines',
+    category: 'Health',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Pill.png',
+    color: '#059669',
+  },
+];
+
+const QUICK_TILES_INCOME = [
+  {
+    id: 'salary',
+    label: 'Salary Credit',
+    category: 'Salary',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Briefcase.png',
+    color: '#10B981',
+  },
+  {
+    id: 'business',
+    label: 'Business Sales',
+    category: 'Business',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Chart%20Increasing.png',
+    color: '#059669',
+  },
+  {
+    id: 'freelance',
+    label: 'Freelance / Gig',
+    category: 'Freelance',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Laptop.png',
+    color: '#0EA5E9',
+  },
+  {
+    id: 'cashback',
+    label: 'Cashback / Gift',
+    category: 'Cashback',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Wrapped%20Gift.png',
+    color: '#F59E0B',
+  },
+  {
+    id: 'investments',
+    label: 'Dividends / Stock',
+    category: 'Investments',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Bar%20Chart.png',
+    color: '#8B5CF6',
+  },
+  {
+    id: 'other_income',
+    label: 'Other Income',
+    category: 'Income',
+    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20Bag.png',
+    color: '#64748B',
+  },
+];
+
 
 const EXPENSE_SUGGESTIONS = [
   {
@@ -199,6 +317,17 @@ export default function AddExpenseScreen() {
   const [type, setType] = useState<'debit' | 'credit'>('debit');
   const [category, setCategory] = useState('Food');
   const [paymentMode, setPaymentMode] = useState('UPI');
+  const [entryMode, setEntryMode] = useState<'quick' | 'detailed'>('quick');
+  const [selectedTileId, setSelectedTileId] = useState<string>('chai');
+  const [savedMerchant, setSavedMerchant] = useState<string>('');
+  const [customPresets, setCustomPresets] = useState<QuickPresetItem[]>([]);
+  const [hiddenPresetIds, setHiddenPresetIds] = useState<string[]>([]);
+  const [presetModalOpen, setPresetModalOpen] = useState(false);
+  const [newPresetLabel, setNewPresetLabel] = useState('');
+  const [newPresetAmount, setNewPresetAmount] = useState('');
+  const [newPresetCategory, setNewPresetCategory] = useState('Food');
+  const [newPresetType, setNewPresetType] = useState<'debit' | 'credit'>('debit');
+  const [newPresetIconUrl, setNewPresetIconUrl] = useState(PRESET_ICONS[0].url);
   const [categories, setCategories] = useState<CategoryItem[]>(defaultCategories);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
@@ -260,6 +389,24 @@ export default function AddExpenseScreen() {
     }
   }, [user]);
 
+  useFocusEffect(
+    useCallback(() => {
+      Promise.all([fetchCustomPresets(), fetchHiddenPresetIds()]).then(([custom, hidden]) => {
+        setCustomPresets(custom);
+        setHiddenPresetIds(hidden);
+      });
+      if (user?.uid) {
+        getUserCategories(user.uid)
+          .then((cats) => {
+            if (cats && cats.length > 0) {
+              setCategories(cats);
+            }
+          })
+          .catch(console.error);
+      }
+    }, [user?.uid])
+  );
+
   const handleAmountChange = (val: string) => {
     const filtered = val.replace(/[^0-9.]/g, '');
     const parts = filtered.split('.');
@@ -280,6 +427,59 @@ export default function AddExpenseScreen() {
     if (item.category) {
       setCategory(item.category);
     }
+  };
+
+  const handleQuickTileSelect = (item: { id: string; label: string; category: string }) => {
+    setSelectedTileId(item.id);
+    setCategory(item.category);
+    setMerchant(item.label);
+  };
+
+  const handleQuickComboSelect = (combo: QuickPresetItem) => {
+    setAmount(combo.amount);
+    setCategory(combo.category);
+    setMerchant(combo.label);
+    if (combo.tileId) {
+      setSelectedTileId(combo.tileId);
+    } else {
+      const match = (isExpense ? QUICK_TILES_EXPENSE : QUICK_TILES_INCOME).find(
+        (t) => t.category.toLowerCase() === combo.category.toLowerCase()
+      );
+      if (match) setSelectedTileId(match.id);
+    }
+  };
+
+  const handleSaveNewPreset = async () => {
+    if (!newPresetLabel.trim()) {
+      Toast.show({ type: 'error', text1: 'Name Required', text2: 'Please enter preset name (e.g. Chai, Gym)' });
+      return;
+    }
+    const pAmt = parseFloat(newPresetAmount);
+    if (!newPresetAmount || isNaN(pAmt) || pAmt <= 0) {
+      Toast.show({ type: 'error', text1: 'Amount Required', text2: 'Please enter a valid amount' });
+      return;
+    }
+
+    const newPreset: QuickPresetItem = {
+      id: 'custom_' + Date.now(),
+      label: newPresetLabel.trim(),
+      amount: newPresetAmount.trim(),
+      category: newPresetCategory || (newPresetType === 'debit' ? 'Food' : 'Salary'),
+      iconUrl: newPresetIconUrl,
+      type: newPresetType,
+      isCustom: true,
+    };
+
+    const updated = await saveCustomPresetItem(newPreset);
+    setCustomPresets(updated);
+    setPresetModalOpen(false);
+    setNewPresetLabel('');
+    setNewPresetAmount('');
+    Toast.show({
+      type: 'success',
+      text1: 'Preset Added!',
+      text2: `${newPreset.label} (${curr}${newPreset.amount}) added to 1-Tap Presets`,
+    });
   };
 
   const pickImage = async () => {
@@ -334,10 +534,12 @@ export default function AddExpenseScreen() {
       Toast.show({ type: 'error', text1: 'Enter Amount', text2: 'Please enter a valid amount greater than 0' });
       return;
     }
-    if (!merchant.trim()) {
-      Toast.show({ type: 'error', text1: 'Enter Purpose', text2: 'Please enter what this transaction was for' });
-      return;
-    }
+
+    const defaultMerchant = isExpense
+      ? (QUICK_TILES_EXPENSE.find((t) => t.id === selectedTileId)?.label || category || 'Expense')
+      : (QUICK_TILES_INCOME.find((t) => t.id === selectedTileId)?.label || category || 'Income');
+
+    const finalMerchant = merchant.trim() || defaultMerchant;
 
     try {
       setIsSaving(true);
@@ -351,12 +553,14 @@ export default function AddExpenseScreen() {
         time: timeStr,
         amount: numAmount,
         type: type,
-        merchant_name: merchant.trim(),
+        merchant_name: finalMerchant,
         description: description.trim() || undefined,
         category: type === 'credit' && category === 'Food' ? 'Income' : category,
         payment_mode: paymentMode,
         receipt_image: receiptImage || null,
       });
+
+      setSavedMerchant(finalMerchant);
 
       Keyboard.dismiss();
       playTransactionSuccessSound().catch(() => {});
@@ -398,6 +602,17 @@ export default function AddExpenseScreen() {
   const isExpense = type === 'debit';
   const themeColor = isExpense ? '#EF4444' : '#10B981';
   const suggestions = isExpense ? EXPENSE_SUGGESTIONS : INCOME_SUGGESTIONS;
+  const activePresets = (
+    isExpense
+      ? [
+          ...customPresets.filter((p) => p.type === 'debit' || !p.type),
+          ...DEFAULT_QUICK_COMBOS_EXPENSE,
+        ]
+      : [
+          ...customPresets.filter((p) => p.type === 'credit'),
+          ...DEFAULT_QUICK_COMBOS_INCOME,
+        ]
+  ).filter((p) => !hiddenPresetIds.includes(p.id));
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -416,15 +631,39 @@ export default function AddExpenseScreen() {
             <Ionicons name="close" size={20} color="#0F172A" />
           </TouchableOpacity>
 
-          <View style={styles.headerCenter}>
-            <ExpoImage
-              source={{ uri: isExpense ? ICONS_3D.expense : ICONS_3D.income }}
-              style={{ width: 22, height: 22, marginRight: 6 }}
-              contentFit="contain"
-            />
-            <Text style={styles.headerTitle}>
-              {isExpense ? 'New Expense' : 'New Income'}
-            </Text>
+          {/* SEGMENTED SWITCH: QUICK vs DETAILED */}
+          <View style={styles.modeSegment}>
+            <TouchableOpacity
+              style={[styles.modeTab, entryMode === 'quick' && styles.modeTabActive]}
+              onPress={() => setEntryMode('quick')}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="flash"
+                size={13}
+                color={entryMode === 'quick' ? '#D97706' : '#64748B'}
+                style={{ marginRight: 4 }}
+              />
+              <Text style={[styles.modeTabText, entryMode === 'quick' && styles.modeTabTextActive]}>
+                Quick Add
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modeTab, entryMode === 'detailed' && styles.modeTabActive]}
+              onPress={() => setEntryMode('detailed')}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="options-outline"
+                size={13}
+                color={entryMode === 'detailed' ? '#2563EB' : '#64748B'}
+                style={{ marginRight: 4 }}
+              />
+              <Text style={[styles.modeTabText, entryMode === 'detailed' && styles.modeTabTextActive]}>
+                Detailed
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
@@ -455,6 +694,7 @@ export default function AddExpenseScreen() {
               onPress={() => {
                 setType('debit');
                 setCategory('Food');
+                setSelectedTileId('chai');
               }}
               activeOpacity={0.85}
             >
@@ -481,6 +721,7 @@ export default function AddExpenseScreen() {
               onPress={() => {
                 setType('credit');
                 setCategory('Salary');
+                setSelectedTileId('salary');
               }}
               activeOpacity={0.85}
             >
@@ -563,383 +804,597 @@ export default function AddExpenseScreen() {
             </ScrollView>
           </View>
 
-          {/* 1-TAP 3D SUGARY SMART SUGGESTIONS */}
-          <View style={styles.card}>
-            <View style={styles.fieldHeader}>
-              <ExpoImage
-                source={{ uri: ICONS_3D.sparkles }}
-                style={{ width: 18, height: 18, marginRight: 6 }}
-                contentFit="contain"
-              />
-              <Text style={styles.fieldTitle}>1-Tap Quick Fill</Text>
-            </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.suggestionsScroll}
-            >
-              {suggestions.map((item) => {
-                const isMatch = merchant.toLowerCase() === item.label.toLowerCase();
-                return (
-                  <TouchableOpacity
-                    key={item.label}
-                    style={[
-                      styles.suggestionPill,
-                      isMatch && styles.suggestionPillActive,
-                    ]}
-                    onPress={() => applyQuickSuggestion(item)}
-                    activeOpacity={0.75}
-                  >
+          {entryMode === 'quick' ? (
+            <>
+              {/* ⚡ 1-TAP QUICK COMBOS */}
+              <View style={styles.quickCombosCard}>
+                <View style={styles.combosHeaderRow}>
+                  <View style={styles.fieldHeader}>
                     <ExpoImage
-                      source={{ uri: item.iconUrl }}
-                      style={{ width: 22, height: 22, marginRight: 6 }}
+                      source={{ uri: ICONS_3D.sparkles }}
+                      style={{ width: 18, height: 18, marginRight: 6 }}
                       contentFit="contain"
                     />
-                    <Text
-                      style={[
-                        styles.suggestionPillText,
-                        isMatch && styles.suggestionPillTextActive,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            {/* Custom Merchant / Note Title Input */}
-            <View style={styles.titleInputWrap}>
-              <ExpoImage
-                source={{ uri: ICONS_3D.receipt }}
-                style={{ width: 20, height: 20, marginRight: 8 }}
-                contentFit="contain"
-              />
-              <TextInput
-                style={styles.mainTitleInput}
-                placeholder={isExpense ? 'What did you spend on? (e.g. Swiggy, Fuel, Jio)' : 'Source of income? (e.g. Salary, Client project)'}
-                placeholderTextColor="#94A3B8"
-                value={merchant}
-                onChangeText={setMerchant}
-              />
-            </View>
-          </View>
-
-          {/* 3D PAYMENT MODES SELECTOR */}
-          <View style={styles.card}>
-            <View style={styles.fieldHeader}>
-              <ExpoImage
-                source={{ uri: ICONS_3D.card }}
-                style={{ width: 18, height: 18, marginRight: 6 }}
-                contentFit="contain"
-              />
-              <Text style={styles.fieldTitle}>Payment Mode</Text>
-            </View>
-
-            <View style={styles.paymentModesRow}>
-              {PAYMENT_MODES.map((pm) => {
-                const isSelected = paymentMode === pm.id;
-                return (
+                    <Text style={styles.fieldTitle}>⚡ 1-Tap Quick Presets</Text>
+                  </View>
                   <TouchableOpacity
-                    key={pm.id}
-                    style={[
-                      styles.paymentModePill,
-                      isSelected && styles.paymentModePillSelected,
-                    ]}
-                    onPress={() => setPaymentMode(pm.id)}
+                    style={styles.addPresetHeaderBtn}
+                    onPress={() => {
+                      setNewPresetType(type);
+                      setNewPresetCategory(category || (isExpense ? 'Food' : 'Salary'));
+                      setPresetModalOpen(true);
+                    }}
                     activeOpacity={0.75}
                   >
-                    <ExpoImage
-                      source={{ uri: pm.icon3d }}
-                      style={{ width: 24, height: 24, marginBottom: 4 }}
-                      contentFit="contain"
-                    />
-                    <Text
-                      style={[
-                        styles.paymentModeText,
-                        isSelected && styles.paymentModeTextSelected,
-                      ]}
-                    >
-                      {pm.label}
-                    </Text>
+                    <Ionicons name="add" size={15} color="#B45309" style={{ marginRight: 2 }} />
+                    <Text style={styles.addPresetHeaderText}>Add</Text>
                   </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
+                </View>
 
-          {/* CATEGORY SELECTOR */}
-          <View style={styles.card}>
-            <View style={styles.categoryHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <ExpoImage
-                  source={{ uri: ICONS_3D.fire }}
-                  style={{ width: 18, height: 18, marginRight: 6 }}
-                  contentFit="contain"
-                />
-                <Text style={styles.fieldTitle}>Category</Text>
-              </View>
-              <TouchableOpacity onPress={() => router.push('/categories')} activeOpacity={0.7}>
-                <Text style={styles.addCategoryLink}>+ New Category</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoriesScroll}
-            >
-              {isExpense ? (
-                categories.map((cat) => {
-                  const isSelected = category.toLowerCase() === cat.name.toLowerCase();
-                  const catColor = cat.color || '#3B82F6';
-                  return (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.combosScroll}
+                >
+                  {activePresets.map((combo) => (
                     <TouchableOpacity
-                      key={cat.id || cat.name}
+                      key={combo.id || combo.label + combo.amount}
                       style={[
-                        styles.categoryChip,
-                        isSelected && {
-                          borderColor: catColor,
-                          backgroundColor: catColor + '18',
-                          shadowColor: catColor,
-                          shadowOpacity: 0.25,
-                          shadowOffset: { width: 0, height: 2 },
-                          shadowRadius: 6,
-                          elevation: 2,
-                        },
+                        styles.comboChip,
+                        combo.isCustom && styles.comboChipCustom,
                       ]}
-                      onPress={() => setCategory(cat.name)}
-                      activeOpacity={0.7}
+                      onPress={() => handleQuickComboSelect(combo)}
+                      activeOpacity={0.75}
                     >
-                      <View
-                        style={[
-                          styles.catIconWrap,
-                          { backgroundColor: catColor + '20' },
-                        ]}
-                      >
-                        <CategoryIcon
-                          categoryName={cat.name}
-                          iconName={cat.icon}
-                          size={16}
-                          color={catColor}
-                        />
+                      <ExpoImage
+                        source={{ uri: combo.iconUrl }}
+                        style={{ width: 24, height: 24, marginRight: 6 }}
+                        contentFit="contain"
+                      />
+                      <View>
+                        <Text style={styles.comboLabel} numberOfLines={1}>{combo.label}</Text>
+                        <Text style={styles.comboAmount}>{curr}{combo.amount}</Text>
                       </View>
-                      <Text
-                        style={[
-                          styles.categoryChipText,
-                          isSelected && { color: '#0F172A', fontWeight: '900' },
-                        ]}
-                      >
-                        {cat.name}
-                      </Text>
                     </TouchableOpacity>
-                  );
-                })
-              ) : (
-                INCOME_CATEGORY_ITEMS.map((incItem) => {
-                  const isSelected = category.toLowerCase() === incItem.name.toLowerCase();
-                  return (
-                    <TouchableOpacity
-                      key={incItem.name}
-                      style={[
-                        styles.categoryChip,
-                        isSelected && {
-                          borderColor: incItem.color,
-                          backgroundColor: incItem.color + '18',
-                          shadowColor: incItem.color,
-                          shadowOpacity: 0.3,
-                          shadowOffset: { width: 0, height: 2 },
-                          shadowRadius: 6,
-                          elevation: 3,
-                        },
-                      ]}
-                      onPress={() => setCategory(incItem.name)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.catIconWrap, { backgroundColor: incItem.color + '20' }]}>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* QUICK CATEGORY 1-TAP GRID */}
+              <View style={styles.card}>
+                <View style={styles.fieldHeader}>
+                  <ExpoImage
+                    source={{ uri: ICONS_3D.fire }}
+                    style={{ width: 18, height: 18, marginRight: 6 }}
+                    contentFit="contain"
+                  />
+                  <Text style={styles.fieldTitle}>
+                    {isExpense ? 'Select What You Spent On' : 'Select Income Source'}
+                  </Text>
+                </View>
+
+                <View style={styles.quickGrid}>
+                  {(isExpense ? QUICK_TILES_EXPENSE : QUICK_TILES_INCOME).map((tile) => {
+                    const isSelected = selectedTileId === tile.id;
+                    return (
+                      <TouchableOpacity
+                        key={tile.id}
+                        style={[
+                          styles.quickGridTile,
+                          isSelected && [
+                            styles.quickGridTileSelected,
+                            { borderColor: tile.color },
+                          ],
+                        ]}
+                        onPress={() => handleQuickTileSelect(tile)}
+                        activeOpacity={0.75}
+                      >
+                        <View
+                          style={[
+                            styles.quickTileIconWrap,
+                            { backgroundColor: tile.color + '18' },
+                            isSelected && { backgroundColor: tile.color + '35' },
+                          ]}
+                        >
+                          <ExpoImage
+                            source={{ uri: tile.iconUrl }}
+                            style={{ width: 28, height: 28 }}
+                            contentFit="contain"
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            styles.quickTileLabel,
+                            isSelected && { color: '#0F172A', fontWeight: '900' },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {tile.label}
+                        </Text>
+                        {isSelected && (
+                          <View style={[styles.tileCheckDot, { backgroundColor: tile.color }]}>
+                            <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* COMPACT PAYMENT VIA ROW */}
+              <View style={styles.card}>
+                <View style={styles.fieldHeader}>
+                  <ExpoImage
+                    source={{ uri: ICONS_3D.card }}
+                    style={{ width: 18, height: 18, marginRight: 6 }}
+                    contentFit="contain"
+                  />
+                  <Text style={styles.fieldTitle}>Payment Via</Text>
+                </View>
+                <View style={styles.compactPaymentRow}>
+                  {PAYMENT_MODES.map((pm) => {
+                    const isSelected = paymentMode === pm.id;
+                    return (
+                      <TouchableOpacity
+                        key={pm.id}
+                        style={[
+                          styles.compactPaymentPill,
+                          isSelected && styles.compactPaymentPillSelected,
+                        ]}
+                        onPress={() => setPaymentMode(pm.id)}
+                        activeOpacity={0.75}
+                      >
                         <ExpoImage
-                          source={{ uri: incItem.iconUrl }}
-                          style={{ width: 16, height: 16 }}
+                          source={{ uri: pm.icon3d }}
+                          style={{ width: 18, height: 18, marginRight: 6 }}
                           contentFit="contain"
                         />
-                      </View>
-                      <Text
+                        <Text
+                          style={[
+                            styles.compactPaymentText,
+                            isSelected && styles.compactPaymentTextSelected,
+                          ]}
+                        >
+                          {pm.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* PURPOSE / NOTE (AUTO-FILLED, EDITABLE) */}
+              <View style={styles.card}>
+                <View style={styles.fieldHeader}>
+                  <ExpoImage
+                    source={{ uri: ICONS_3D.receipt }}
+                    style={{ width: 18, height: 18, marginRight: 6 }}
+                    contentFit="contain"
+                  />
+                  <Text style={styles.fieldTitle}>Purpose / Note (Auto-Filled)</Text>
+                </View>
+                <View style={styles.quickPurposeInputRow}>
+                  <TextInput
+                    style={styles.quickPurposeInput}
+                    value={merchant}
+                    onChangeText={setMerchant}
+                    placeholder={category || 'e.g. Chai, Petrol, Groceries'}
+                    placeholderTextColor="#94A3B8"
+                  />
+                  {merchant !== '' && (
+                    <TouchableOpacity onPress={() => setMerchant('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="close-circle" size={18} color="#94A3B8" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {/* SWITCH TO DETAILED HINT */}
+              <TouchableOpacity
+                style={styles.switchToDetailedHint}
+                onPress={() => setEntryMode('detailed')}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="options-outline" size={16} color="#4F46E5" style={{ marginRight: 6 }} />
+                <Text style={styles.switchToDetailedText}>
+                  Need receipt photos, dates or notes? <Text style={styles.switchToDetailedLink}>Switch to Detailed →</Text>
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              {/* 1-TAP 3D SUGARY SMART SUGGESTIONS */}
+              <View style={styles.card}>
+                <View style={styles.fieldHeader}>
+                  <ExpoImage
+                    source={{ uri: ICONS_3D.sparkles }}
+                    style={{ width: 18, height: 18, marginRight: 6 }}
+                    contentFit="contain"
+                  />
+                  <Text style={styles.fieldTitle}>1-Tap Quick Fill</Text>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.suggestionsScroll}
+                >
+                  {suggestions.map((item) => {
+                    const isMatch = merchant.toLowerCase() === item.label.toLowerCase();
+                    return (
+                      <TouchableOpacity
+                        key={item.label}
                         style={[
-                          styles.categoryChipText,
-                          isSelected && { color: '#0F172A', fontWeight: '900' },
+                          styles.suggestionPill,
+                          isMatch && styles.suggestionPillActive,
                         ]}
+                        onPress={() => applyQuickSuggestion(item)}
+                        activeOpacity={0.75}
                       >
-                        {incItem.name}
+                        <ExpoImage
+                          source={{ uri: item.iconUrl }}
+                          style={{ width: 22, height: 22, marginRight: 6 }}
+                          contentFit="contain"
+                        />
+                        <Text
+                          style={[
+                            styles.suggestionPillText,
+                            isMatch && styles.suggestionPillTextActive,
+                          ]}
+                        >
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Custom Merchant / Note Title Input */}
+                <View style={styles.titleInputWrap}>
+                  <ExpoImage
+                    source={{ uri: ICONS_3D.receipt }}
+                    style={{ width: 20, height: 20, marginRight: 8 }}
+                    contentFit="contain"
+                  />
+                  <TextInput
+                    style={styles.mainTitleInput}
+                    placeholder={isExpense ? 'What did you spend on? (e.g. Swiggy, Fuel, Jio)' : 'Source of income? (e.g. Salary, Client project)'}
+                    placeholderTextColor="#94A3B8"
+                    value={merchant}
+                    onChangeText={setMerchant}
+                  />
+                </View>
+              </View>
+
+              {/* 3D PAYMENT MODES SELECTOR */}
+              <View style={styles.card}>
+                <View style={styles.fieldHeader}>
+                  <ExpoImage
+                    source={{ uri: ICONS_3D.card }}
+                    style={{ width: 18, height: 18, marginRight: 6 }}
+                    contentFit="contain"
+                  />
+                  <Text style={styles.fieldTitle}>Payment Mode</Text>
+                </View>
+
+                <View style={styles.paymentModesRow}>
+                  {PAYMENT_MODES.map((pm) => {
+                    const isSelected = paymentMode === pm.id;
+                    return (
+                      <TouchableOpacity
+                        key={pm.id}
+                        style={[
+                          styles.paymentModePill,
+                          isSelected && styles.paymentModePillSelected,
+                        ]}
+                        onPress={() => setPaymentMode(pm.id)}
+                        activeOpacity={0.75}
+                      >
+                        <ExpoImage
+                          source={{ uri: pm.icon3d }}
+                          style={{ width: 24, height: 24, marginBottom: 4 }}
+                          contentFit="contain"
+                        />
+                        <Text
+                          style={[
+                            styles.paymentModeText,
+                            isSelected && styles.paymentModeTextSelected,
+                          ]}
+                        >
+                          {pm.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* CATEGORY SELECTOR */}
+              <View style={styles.card}>
+                <View style={styles.categoryHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <ExpoImage
+                      source={{ uri: ICONS_3D.fire }}
+                      style={{ width: 18, height: 18, marginRight: 6 }}
+                      contentFit="contain"
+                    />
+                    <Text style={styles.fieldTitle}>Category</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => router.push('/categories')} activeOpacity={0.7}>
+                    <Text style={styles.addCategoryLink}>+ New Category</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.categoriesScroll}
+                >
+                  {isExpense ? (
+                    categories.map((cat) => {
+                      const isSelected = category.toLowerCase() === cat.name.toLowerCase();
+                      const catColor = cat.color || '#3B82F6';
+                      return (
+                        <TouchableOpacity
+                          key={cat.id || cat.name}
+                          style={[
+                            styles.categoryChip,
+                            isSelected && {
+                              borderColor: catColor,
+                              backgroundColor: catColor + '18',
+                              shadowColor: catColor,
+                              shadowOpacity: 0.25,
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowRadius: 6,
+                              elevation: 2,
+                            },
+                          ]}
+                          onPress={() => setCategory(cat.name)}
+                          activeOpacity={0.7}
+                        >
+                          <View
+                            style={[
+                              styles.catIconWrap,
+                              { backgroundColor: catColor + '20' },
+                            ]}
+                          >
+                            <CategoryIcon
+                              categoryName={cat.name}
+                              iconName={cat.icon}
+                              size={16}
+                              color={catColor}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.categoryChipText,
+                              isSelected && { color: '#0F172A', fontWeight: '900' },
+                            ]}
+                          >
+                            {cat.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })
+                  ) : (
+                    INCOME_CATEGORY_ITEMS.map((incItem) => {
+                      const isSelected = category.toLowerCase() === incItem.name.toLowerCase();
+                      return (
+                        <TouchableOpacity
+                          key={incItem.name}
+                          style={[
+                            styles.categoryChip,
+                            isSelected && {
+                              borderColor: incItem.color,
+                              backgroundColor: incItem.color + '18',
+                              shadowColor: incItem.color,
+                              shadowOpacity: 0.3,
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowRadius: 6,
+                              elevation: 3,
+                            },
+                          ]}
+                          onPress={() => setCategory(incItem.name)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[styles.catIconWrap, { backgroundColor: incItem.color + '20' }]}>
+                            <ExpoImage
+                              source={{ uri: incItem.iconUrl }}
+                              style={{ width: 16, height: 16 }}
+                              contentFit="contain"
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.categoryChipText,
+                              isSelected && { color: '#0F172A', fontWeight: '900' },
+                            ]}
+                          >
+                            {incItem.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </View>
+
+              {/* OPTIONAL DETAILS (DATE, RECEIPT, NOTE) */}
+              <TouchableOpacity
+                style={styles.moreOptionsToggle}
+                onPress={() => {
+                  const next = !showMoreOptions;
+                  setShowMoreOptions(next);
+                  if (next) {
+                    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
+                  }
+                }}
+                activeOpacity={0.75}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <ExpoImage
+                    source={{ uri: ICONS_3D.memo }}
+                    style={{ width: 18, height: 18, marginRight: 8 }}
+                    contentFit="contain"
+                  />
+                  <Text style={styles.moreOptionsText}>
+                    {showMoreOptions ? 'Hide Extra Details' : '+ Add Date, Screenshot or Note'}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={showMoreOptions ? 'chevron-up' : 'chevron-down'}
+                  size={16}
+                  color="#94A3B8"
+                />
+              </TouchableOpacity>
+
+              {showMoreOptions && (
+                <View style={styles.card}>
+                  {/* Date */}
+                  <View style={styles.fieldHeader}>
+                    <ExpoImage
+                      source={{ uri: ICONS_3D.calendar }}
+                      style={{ width: 18, height: 18, marginRight: 6 }}
+                      contentFit="contain"
+                    />
+                    <Text style={styles.fieldTitle}>Date</Text>
+                  </View>
+                  <View style={styles.datePillsRow}>
+                    <TouchableOpacity
+                      style={[styles.datePill, date === todayStr && styles.datePillActive]}
+                      onPress={() => setDate(todayStr)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.datePillText, date === todayStr && styles.datePillTextActive]}>
+                        Today
                       </Text>
                     </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
-          </View>
 
-          {/* OPTIONAL DETAILS (DATE, RECEIPT, NOTE) */}
-          <TouchableOpacity
-            style={styles.moreOptionsToggle}
-            onPress={() => {
-              const next = !showMoreOptions;
-              setShowMoreOptions(next);
-              if (next) {
-                setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
-              }
-            }}
-            activeOpacity={0.75}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <ExpoImage
-                source={{ uri: ICONS_3D.memo }}
-                style={{ width: 18, height: 18, marginRight: 8 }}
-                contentFit="contain"
-              />
-              <Text style={styles.moreOptionsText}>
-                {showMoreOptions ? 'Hide Extra Details' : '+ Add Date, Screenshot or Note'}
-              </Text>
-            </View>
-            <Ionicons
-              name={showMoreOptions ? 'chevron-up' : 'chevron-down'}
-              size={16}
-              color="#94A3B8"
-            />
-          </TouchableOpacity>
-
-          {showMoreOptions && (
-            <View style={styles.card}>
-              {/* Date */}
-              <View style={styles.fieldHeader}>
-                <ExpoImage
-                  source={{ uri: ICONS_3D.calendar }}
-                  style={{ width: 18, height: 18, marginRight: 6 }}
-                  contentFit="contain"
-                />
-                <Text style={styles.fieldTitle}>Date</Text>
-              </View>
-              <View style={styles.datePillsRow}>
-                <TouchableOpacity
-                  style={[styles.datePill, date === todayStr && styles.datePillActive]}
-                  onPress={() => setDate(todayStr)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.datePillText, date === todayStr && styles.datePillTextActive]}>
-                    Today
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.datePill, date === yesterdayStr && styles.datePillActive]}
-                  onPress={() => setDate(yesterdayStr)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.datePillText, date === yesterdayStr && styles.datePillTextActive]}>
-                    Yesterday
-                  </Text>
-                </TouchableOpacity>
-
-                <TextInput
-                  style={styles.customDateInput}
-                  value={date}
-                  onChangeText={setDate}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#94A3B8"
-                />
-              </View>
-
-              <View style={styles.innerDivider} />
-
-              {/* Screenshot Proof */}
-              <View style={styles.fieldHeader}>
-                <ExpoImage
-                  source={{ uri: ICONS_3D.camera }}
-                  style={{ width: 18, height: 18, marginRight: 6 }}
-                  contentFit="contain"
-                />
-                <Text style={styles.fieldTitle}>Payment Screenshot / Bill</Text>
-              </View>
-
-              {receiptImage ? (
-                <View style={styles.proofPreviewCard}>
-                  <TouchableOpacity
-                    style={styles.proofThumbRow}
-                    onPress={() => setPreviewModalOpen(true)}
-                    activeOpacity={0.8}
-                  >
-                    <ExpoImage source={{ uri: receiptImage }} style={styles.proofThumbnail} contentFit="cover" />
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={styles.proofAttachedText}>Screenshot Attached</Text>
-                      <Text style={styles.proofSubText}>Tap to view full screen</Text>
-                    </View>
-                    <Ionicons name="eye-outline" size={18} color="#2563EB" />
-                  </TouchableOpacity>
-
-                  <View style={styles.proofActionRow}>
-                    <TouchableOpacity style={styles.proofActionBtn} onPress={pickImage}>
-                      <Ionicons name="swap-horizontal" size={14} color="#2563EB" style={{ marginRight: 4 }} />
-                      <Text style={styles.proofActionText}>Replace</Text>
-                    </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.proofActionBtn}
-                      onPress={() => setReceiptImage(null)}
+                      style={[styles.datePill, date === yesterdayStr && styles.datePillActive]}
+                      onPress={() => setDate(yesterdayStr)}
+                      activeOpacity={0.7}
                     >
-                      <Ionicons name="trash-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
-                      <Text style={[styles.proofActionText, { color: '#EF4444' }]}>Remove</Text>
+                      <Text style={[styles.datePillText, date === yesterdayStr && styles.datePillTextActive]}>
+                        Yesterday
+                      </Text>
                     </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.attachButtonsRow}>
-                  <TouchableOpacity style={styles.attachBtn} onPress={pickImage} activeOpacity={0.7}>
-                    <ExpoImage
-                      source={{ uri: ICONS_3D.gallery }}
-                      style={{ width: 20, height: 20, marginRight: 6 }}
-                      contentFit="contain"
+
+                    <TextInput
+                      style={styles.customDateInput}
+                      value={date}
+                      onChangeText={setDate}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor="#94A3B8"
                     />
-                    <Text style={styles.attachBtnText}>Upload Photo</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.attachBtn} onPress={takePhoto} activeOpacity={0.7}>
+                  </View>
+
+                  <View style={styles.innerDivider} />
+
+                  {/* Screenshot Proof */}
+                  <View style={styles.fieldHeader}>
                     <ExpoImage
                       source={{ uri: ICONS_3D.camera }}
-                      style={{ width: 20, height: 20, marginRight: 6 }}
+                      style={{ width: 18, height: 18, marginRight: 6 }}
                       contentFit="contain"
                     />
-                    <Text style={styles.attachBtnText}>Take Camera</Text>
-                  </TouchableOpacity>
+                    <Text style={styles.fieldTitle}>Payment Screenshot / Bill</Text>
+                  </View>
+
+                  {receiptImage ? (
+                    <View style={styles.proofPreviewCard}>
+                      <TouchableOpacity
+                        style={styles.proofThumbRow}
+                        onPress={() => setPreviewModalOpen(true)}
+                        activeOpacity={0.8}
+                      >
+                        <ExpoImage source={{ uri: receiptImage }} style={styles.proofThumbnail} contentFit="cover" />
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={styles.proofAttachedText}>Screenshot Attached</Text>
+                          <Text style={styles.proofSubText}>Tap to view full screen</Text>
+                        </View>
+                        <Ionicons name="eye-outline" size={18} color="#2563EB" />
+                      </TouchableOpacity>
+
+                      <View style={styles.proofActionRow}>
+                        <TouchableOpacity style={styles.proofActionBtn} onPress={pickImage}>
+                          <Ionicons name="swap-horizontal" size={14} color="#2563EB" style={{ marginRight: 4 }} />
+                          <Text style={styles.proofActionText}>Replace</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.proofActionBtn}
+                          onPress={() => setReceiptImage(null)}
+                        >
+                          <Ionicons name="trash-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+                          <Text style={[styles.proofActionText, { color: '#EF4444' }]}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.attachButtonsRow}>
+                      <TouchableOpacity style={styles.attachBtn} onPress={pickImage} activeOpacity={0.7}>
+                        <ExpoImage
+                          source={{ uri: ICONS_3D.gallery }}
+                          style={{ width: 20, height: 20, marginRight: 6 }}
+                          contentFit="contain"
+                        />
+                        <Text style={styles.attachBtnText}>Upload Photo</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.attachBtn} onPress={takePhoto} activeOpacity={0.7}>
+                        <ExpoImage
+                          source={{ uri: ICONS_3D.camera }}
+                          style={{ width: 20, height: 20, marginRight: 6 }}
+                          contentFit="contain"
+                        />
+                        <Text style={styles.attachBtnText}>Take Camera</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  <View style={styles.innerDivider} />
+
+                  {/* Extra Note */}
+                  <View style={styles.fieldHeader}>
+                    <ExpoImage
+                      source={{ uri: ICONS_3D.memo }}
+                      style={{ width: 18, height: 18, marginRight: 6 }}
+                      contentFit="contain"
+                    />
+                    <Text style={styles.fieldTitle}>Note / Tags</Text>
+                  </View>
+                  <TextInput
+                    style={styles.noteInput}
+                    placeholder="Add tags, splits, or remarks..."
+                    placeholderTextColor="#94A3B8"
+                    value={description}
+                    onChangeText={setDescription}
+                    multiline
+                  />
                 </View>
               )}
 
-              <View style={styles.innerDivider} />
-
-              {/* Extra Note */}
-              <View style={styles.fieldHeader}>
-                <ExpoImage
-                  source={{ uri: ICONS_3D.memo }}
-                  style={{ width: 18, height: 18, marginRight: 6 }}
-                  contentFit="contain"
-                />
-                <Text style={styles.fieldTitle}>Note / Tags</Text>
-              </View>
-              <TextInput
-                style={styles.noteInput}
-                placeholder="Add tags, splits, or remarks..."
-                placeholderTextColor="#94A3B8"
-                value={description}
-                onChangeText={setDescription}
-                multiline
-              />
-            </View>
+              {/* SWITCH TO QUICK HINT */}
+              <TouchableOpacity
+                style={styles.switchToDetailedHint}
+                onPress={() => setEntryMode('quick')}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="flash" size={16} color="#D97706" style={{ marginRight: 6 }} />
+                <Text style={styles.switchToDetailedText}>
+                  Want faster 2-tap adding? <Text style={[styles.switchToDetailedLink, { color: '#B45309' }]}>Switch to Quick Add ⚡</Text>
+                </Text>
+              </TouchableOpacity>
+            </>
           )}
         </ScrollView>
 
         {/* BOTTOM SAVE BUTTON WITH GLOWING GRADIENT */}
         <View style={styles.footerContainer}>
           <TouchableOpacity
-            style={styles.saveBtn}
+            style={[styles.saveBtn, (!amount || parseFloat(amount) <= 0) && styles.saveBtnDisabled]}
             onPress={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || !amount || parseFloat(amount) <= 0}
             activeOpacity={0.88}
           >
             <LinearGradient
@@ -960,7 +1415,7 @@ export default function AddExpenseScreen() {
               <Text style={styles.saveBtnText}>
                 {isSaving
                   ? 'Saving Transaction...'
-                  : `Save ${isExpense ? 'Expense' : 'Income'} ${amount ? `• ${curr}${amount}` : ''}`}
+                  : `${entryMode === 'quick' ? '⚡ Quick Save' : 'Save'} ${isExpense ? 'Expense' : 'Income'} ${amount ? `• ${curr}${amount}` : ''}`}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -1018,7 +1473,7 @@ export default function AddExpenseScreen() {
               </Text>
 
               <Text style={styles.fullscreenSuccessMerchant} numberOfLines={1}>
-                {merchant || 'Transaction'}
+                {savedMerchant || merchant || 'Transaction'}
               </Text>
 
               <View style={styles.fullscreenSuccessBadge}>
@@ -1047,6 +1502,158 @@ export default function AddExpenseScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ADD CUSTOM PRESET MODAL */}
+      <Modal
+        visible={presetModalOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPresetModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.presetModalCard}>
+            {/* Modal Header */}
+            <View style={styles.presetModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ExpoImage
+                  source={{ uri: ICONS_3D.sparkles }}
+                  style={{ width: 22, height: 22, marginRight: 8 }}
+                  contentFit="contain"
+                />
+                <Text style={styles.presetModalTitle}>New 1-Tap Preset</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.modalCloseBtn}
+                onPress={() => setPresetModalOpen(false)}
+              >
+                <Ionicons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {/* Type Toggle: Expense / Income */}
+              <View style={styles.presetTypeRow}>
+                <TouchableOpacity
+                  style={[styles.presetTypeBtn, newPresetType === 'debit' && styles.presetTypeBtnActiveExpense]}
+                  onPress={() => {
+                    setNewPresetType('debit');
+                    setNewPresetCategory('Food');
+                  }}
+                >
+                  <Text style={[styles.presetTypeBtnText, newPresetType === 'debit' && styles.presetTypeBtnTextActive]}>
+                    Expense
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.presetTypeBtn, newPresetType === 'credit' && styles.presetTypeBtnActiveIncome]}
+                  onPress={() => {
+                    setNewPresetType('credit');
+                    setNewPresetCategory('Salary');
+                  }}
+                >
+                  <Text style={[styles.presetTypeBtnText, newPresetType === 'credit' && styles.presetTypeBtnTextActive]}>
+                    Income
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Preset Label Input */}
+              <Text style={styles.modalInputLabel}>Preset Name / Item</Text>
+              <TextInput
+                style={styles.modalTextInput}
+                placeholder="e.g. Chai, Cold Coffee, Gym, Metro, Milk"
+                placeholderTextColor="#94A3B8"
+                value={newPresetLabel}
+                onChangeText={setNewPresetLabel}
+              />
+
+              {/* Preset Amount Input */}
+              <Text style={styles.modalInputLabel}>Fixed Amount ({curr})</Text>
+              <View style={styles.modalAmountRow}>
+                <Text style={styles.modalCurrPrefix}>{curr}</Text>
+                <TextInput
+                  style={styles.modalAmountInput}
+                  placeholder="0"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="decimal-pad"
+                  value={newPresetAmount}
+                  onChangeText={(v) => setNewPresetAmount(v.replace(/[^0-9.]/g, ''))}
+                />
+              </View>
+
+              {/* Category Selection */}
+              <Text style={styles.modalInputLabel}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modalCatsScroll}>
+                {(newPresetType === 'debit'
+                  ? categories.map((c) => c.name)
+                  : ['Salary', 'Business', 'Freelance', 'Cashback', 'Investments', 'Rental', 'Other']
+                ).map((catName) => {
+                  const isSel = newPresetCategory.toLowerCase() === catName.toLowerCase();
+                  return (
+                    <TouchableOpacity
+                      key={catName}
+                      style={[styles.modalCatChip, isSel && styles.modalCatChipActive]}
+                      onPress={() => setNewPresetCategory(catName)}
+                    >
+                      <Text style={[styles.modalCatChipText, isSel && styles.modalCatChipTextActive]}>
+                        {catName}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {/* 3D Icon Picker */}
+              <Text style={styles.modalInputLabel}>Choose 3D Icon</Text>
+              <View style={styles.presetIconGrid}>
+                {PRESET_ICONS.map((ico) => {
+                  const isSel = newPresetIconUrl === ico.url;
+                  return (
+                    <TouchableOpacity
+                      key={ico.name + ico.url}
+                      style={[styles.presetIconCell, isSel && styles.presetIconCellActive]}
+                      onPress={() => setNewPresetIconUrl(ico.url)}
+                    >
+                      <ExpoImage source={{ uri: ico.url }} style={{ width: 28, height: 28 }} contentFit="contain" />
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Create Button */}
+              <TouchableOpacity
+                style={styles.modalSaveBtn}
+                onPress={handleSaveNewPreset}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={newPresetType === 'debit' ? ['#EF4444', '#DC2626'] : ['#10B981', '#059669']}
+                  style={styles.modalSaveGradient}
+                >
+                  <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.modalSaveText}>Save Preset</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalManageLinkBtn}
+                onPress={() => {
+                  setPresetModalOpen(false);
+                  router.push('/categories?tab=presets' as any);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="options-outline" size={16} color="#64748B" style={{ marginRight: 6 }} />
+                <Text style={styles.modalManageLinkText}>Manage / Delete Presets in Categories</Text>
+                <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1060,15 +1667,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
-  },
-  headerCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   closeBtn: {
     width: 36,
@@ -1078,12 +1681,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.3,
-  },
   catsHeaderBtn: {
     width: 36,
     height: 36,
@@ -1092,6 +1689,243 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  // MODE SEGMENTED CONTROL
+  modeSegment: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 16,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modeTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 13,
+  },
+  modeTabActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  modeTabText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  modeTabTextActive: {
+    color: '#0F172A',
+    fontWeight: '900',
+  },
+
+  // QUICK COMBOS
+  quickCombosCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#64748B',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  combosHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  addPresetHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#FCD34D',
+  },
+  addPresetHeaderText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  combosScroll: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  comboChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  comboChipCustom: {
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFDF5',
+  },
+  comboEmoji: {
+    fontSize: 20,
+  },
+  comboLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  comboAmount: {
+    fontSize: 12.5,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+
+  // QUICK GRID
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 6,
+    justifyContent: 'space-between',
+  },
+  quickGridTile: {
+    width: '22.5%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  quickGridTileSelected: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  quickTileIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 5,
+  },
+  quickTileLabel: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+  },
+  tileCheckDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // COMPACT PAYMENT MODES
+  compactPaymentRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  compactPaymentPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingVertical: 9,
+    borderRadius: 14,
+  },
+  compactPaymentPillSelected: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  compactPaymentText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  compactPaymentTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+
+  // QUICK PURPOSE INPUT
+  quickPurposeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  quickPurposeInput: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#0F172A',
+    paddingVertical: 6,
+  },
+
+  // SWITCH TO DETAILED HINT
+  switchToDetailedHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  switchToDetailedText: {
+    fontSize: 12,
+    color: '#4338CA',
+    fontWeight: '600',
+  },
+  switchToDetailedLink: {
+    fontWeight: '900',
+    color: '#3730A3',
+  },
+  saveBtnDisabled: {
+    opacity: 0.55,
+  },
+
   content: {
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -1642,5 +2476,239 @@ const styles = StyleSheet.create({
   previewFullImg: {
     width: '100%',
     height: '100%',
+  },
+
+  // PRESET MODAL
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  presetModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    maxHeight: '85%',
+  },
+  presetModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  presetModalTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetTypeRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
+    padding: 3,
+    marginBottom: 14,
+  },
+  presetTypeBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 11,
+  },
+  presetTypeBtnActiveExpense: {
+    backgroundColor: '#EF4444',
+  },
+  presetTypeBtnActiveIncome: {
+    backgroundColor: '#10B981',
+  },
+  presetTypeBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  presetTypeBtnTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  modalInputLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#475569',
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  modalTextInput: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 12,
+  },
+  modalAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  modalCurrPrefix: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#D97706',
+    marginRight: 6,
+  },
+  modalAmountInput: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  modalCatsScroll: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  modalCatChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modalCatChipActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  modalCatChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  modalCatChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  presetIconGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 18,
+    marginTop: 4,
+  },
+  presetIconCell: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetIconCellActive: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#D97706',
+    borderWidth: 2,
+    transform: [{ scale: 1.08 }],
+  },
+  modalSaveBtn: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  modalSaveGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+  },
+  modalSaveText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+
+  // MANAGE ADDED PRESETS IN MODAL
+  managePresetsSection: {
+    marginTop: 18,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  managePresetsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  managePresetsSectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  customPresetRowItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  customPresetItemTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  customPresetItemSub: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 2,
+  },
+  modalManageLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginTop: 14,
+  },
+  modalManageLinkText: {
+    flex: 1,
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#475569',
   },
 });

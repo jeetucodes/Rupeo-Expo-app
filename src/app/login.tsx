@@ -9,8 +9,7 @@ import {
   Platform,
   Alert,
   StatusBar,
-  Image,
-  View as RNView, // ensure we don't conflict, although View is already imported
+  ScrollView,
   ActivityIndicator,
   Animated,
   Easing,
@@ -18,12 +17,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
   getAdditionalUserInfo,
 } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { promptGoogleSignIn } from '@/lib/google-auth';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, setDoc } from 'firebase/firestore';
+import Toast from 'react-native-toast-message';
 import {
   requestNotificationPermissions,
   sendWelcomeNotification,
@@ -32,7 +35,18 @@ import {
 
 export default function AuthScreen() {
   const router = useRouter();
+
+  // Mode: 'signin' | 'signup'
+  const [isSignUp, setIsSignUp] = useState(false);
+
+  // Form Fields
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const ambientMotion = useRef(new Animated.Value(0)).current;
 
@@ -49,17 +63,99 @@ export default function AuthScreen() {
     return () => animation.stop();
   }, [ambientMotion]);
 
+  // Email & Password Auth Handler
+  const handleEmailAuth = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPassword = password.trim();
 
-  const handleGoogleAuth = async () => {
+    if (!trimmedEmail) {
+      Toast.show({ type: 'error', text1: 'Required', text2: 'Please enter your email address' });
+      return;
+    }
+    if (!trimmedPassword) {
+      Toast.show({ type: 'error', text1: 'Required', text2: 'Please enter your password' });
+      return;
+    }
+    if (trimmedPassword.length < 6) {
+      Toast.show({ type: 'error', text1: 'Weak Password', text2: 'Password must be at least 6 characters' });
+      return;
+    }
+    if (isSignUp && !name.trim()) {
+      Toast.show({ type: 'error', text1: 'Required', text2: 'Please enter your name' });
+      return;
+    }
+
     try {
       setLoading(true);
+
+      if (isSignUp) {
+        // 1. Create New Account
+        const cred = await createUserWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
+        if (cred.user) {
+          if (name.trim()) {
+            await updateProfile(cred.user, { displayName: name.trim() });
+          }
+
+          await setDoc(doc(db, 'users', cred.user.uid), {
+            email: cred.user.email,
+            name: name.trim() || 'User',
+            createdAt: new Date().toISOString(),
+            starting_balance: 0,
+            has_set_starting_balance: false,
+          }, { merge: true });
+
+          requestNotificationPermissions().then((granted) => {
+            if (granted) setupPeriodicSmartNotifications().catch(() => {});
+          }).catch(() => {});
+
+          sendWelcomeNotification(cred.user.uid).catch(() => {});
+          router.replace('/setup');
+        }
+      } else {
+        // 2. Sign In to Existing Account
+        const cred = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
+        if (cred.user) {
+          requestNotificationPermissions().then((granted) => {
+            if (granted) setupPeriodicSmartNotifications().catch(() => {});
+          }).catch(() => {});
+
+          const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
+          if (!userDoc.exists() || userDoc.data()?.has_set_starting_balance === false) {
+            router.replace('/setup');
+          } else {
+            router.replace('/(tabs)/dashboard');
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Email Auth Error:', error);
+      let msg = error?.message || 'Authentication failed. Please try again.';
+
+      if (error?.code === 'auth/invalid-credential' || error?.code === 'auth/wrong-password' || error?.code === 'auth/user-not-found') {
+        msg = 'Incorrect email or password. Please check your credentials.';
+      } else if (error?.code === 'auth/email-already-in-use') {
+        msg = 'This email is already registered. Please sign in instead.';
+      } else if (error?.code === 'auth/invalid-email') {
+        msg = 'Please enter a valid email address.';
+      }
+
+      Toast.show({ type: 'error', text1: isSignUp ? 'Sign Up Failed' : 'Sign In Failed', text2: msg });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Google Sign In Handler
+  const handleGoogleAuth = async () => {
+    try {
+      setGoogleLoading(true);
       const result = await promptGoogleSignIn();
       if (result?.user) {
         requestNotificationPermissions().then((granted) => {
           if (granted) {
-            setupPeriodicSmartNotifications().catch(() => { });
+            setupPeriodicSmartNotifications().catch(() => {});
           }
-        }).catch(() => { });
+        }).catch(() => {});
 
         if (getAdditionalUserInfo(result)?.isNewUser) {
           await setDoc(doc(db, 'users', result.user.uid), {
@@ -70,7 +166,7 @@ export default function AuthScreen() {
             has_set_starting_balance: false,
           }, { merge: true });
 
-          sendWelcomeNotification(result.user.uid).catch(() => { });
+          sendWelcomeNotification(result.user.uid).catch(() => {});
           router.replace('/setup');
         } else {
           router.replace('/(tabs)/dashboard');
@@ -82,7 +178,7 @@ export default function AuthScreen() {
         Alert.alert('Google Sign-In', error.message || 'Could not sign in with Google.');
       }
     } finally {
-      setLoading(false);
+      setGoogleLoading(false);
     }
   };
 
@@ -117,54 +213,190 @@ export default function AuthScreen() {
           }
         ]}
       />
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.glowCenter,
-          {
-            transform: [
-              { translateX: ambientMotion.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, -60, 0] }) },
-              { translateY: ambientMotion.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, -20, 0] }) },
-              { scale: ambientMotion.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.8, 1.1, 0.8] }) }
-            ]
-          }
-        ]}
-      />
 
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.scrollContent}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Header Text Section */}
           <View style={styles.header}>
-            <Text style={styles.title} adjustsFontSizeToFit numberOfLines={1}>Rupeo</Text>
-            <Text style={styles.subtitle} adjustsFontSizeToFit numberOfLines={2}>
-              Welcome back! Sign in to access your wallet.
+            <Text style={styles.title}>Rupeo</Text>
+            <Text style={styles.subtitle}>
+              {isSignUp ? 'Create your account to start managing expenses.' : 'Welcome back! Sign in to access your wallet.'}
             </Text>
           </View>
 
-          {/* Form Container */}
-          <View style={styles.formContainer}>
-            {/* Google Sign In Only */}
-
+          {/* TAB TOGGLE: SIGN IN / SIGN UP */}
+          <View style={styles.tabTrack}>
             <TouchableOpacity
-              style={styles.googleButton}
-              onPress={handleGoogleAuth}
-              disabled={loading}
+              style={[styles.tabBtn, !isSignUp && styles.tabBtnActive]}
+              onPress={() => setIsSignUp(false)}
               activeOpacity={0.8}
             >
-              <Ionicons name="logo-google" size={20} color="#EA4335" style={styles.googleIcon} />
-              <Text style={styles.googleButtonText}>Continue with Google</Text>
+              <Text style={[styles.tabBtnText, !isSignUp && styles.tabBtnTextActive]}>
+                Sign In
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tabBtn, isSignUp && styles.tabBtnActive]}
+              onPress={() => setIsSignUp(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.tabBtnText, isSignUp && styles.tabBtnTextActive]}>
+                Create Account
+              </Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.footerInfo}>
-            <Ionicons name="shield-checkmark" size={15} color="#10B981" />
-            <Text style={styles.footerText}>100% Secure & Private</Text>
+          {/* FORM INPUTS */}
+          <View style={styles.formContainer}>
+            {/* FULL NAME (SIGN UP ONLY) */}
+            {isSignUp && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>FULL NAME</Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="person-outline" size={18} color="#64748B" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.inputField}
+                    placeholder="e.g. Rahul Sharma"
+                    placeholderTextColor="#94A3B8"
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
+                    editable={!loading}
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* EMAIL */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="mail-outline" size={18} color="#64748B" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="name@example.com"
+                  placeholderTextColor="#94A3B8"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!loading}
+                />
+              </View>
+            </View>
+
+            {/* PASSWORD */}
+            <View style={styles.inputGroup}>
+              <View style={styles.passwordLabelRow}>
+                <Text style={styles.inputLabel}>PASSWORD</Text>
+                {!isSignUp && (
+                  <TouchableOpacity
+                    onPress={() => router.push('/forgot-password')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.forgotPassLink}>Forgot password?</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="lock-closed-outline" size={18} color="#64748B" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.inputField}
+                  placeholder={isSignUp ? 'Minimum 6 characters' : 'Enter your password'}
+                  placeholderTextColor="#94A3B8"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={18}
+                    color="#64748B"
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* SUBMIT BUTTON */}
+            <TouchableOpacity
+              style={[styles.primaryButton, loading && { opacity: 0.75 }]}
+              onPress={handleEmailAuth}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <View style={styles.btnRow}>
+                  <Text style={styles.primaryButtonText}>
+                    {isSignUp ? 'Create Free Account' : 'Sign In'}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* DIVIDER */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* GOOGLE SIGN IN BUTTON */}
+            <TouchableOpacity
+              style={styles.googleButton}
+              onPress={handleGoogleAuth}
+              disabled={loading || googleLoading}
+              activeOpacity={0.8}
+            >
+              {googleLoading ? (
+                <ActivityIndicator size="small" color="#EA4335" />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={20} color="#EA4335" style={styles.googleIcon} />
+                  <Text style={styles.googleButtonText}>Continue with Google</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {/* TOGGLE BOTTOM TEXT */}
+            <TouchableOpacity
+              onPress={() => setIsSignUp(!isSignUp)}
+              style={styles.switchModeBtn}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.switchModeText}>
+                {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
+                <Text style={styles.switchModeHighlight}>
+                  {isSignUp ? 'Sign In' : 'Create One Free'}
+                </Text>
+              </Text>
+            </TouchableOpacity>
           </View>
 
-        </View>
+          {/* FOOTER */}
+          <View style={styles.footerInfo}>
+            <Ionicons name="shield-checkmark" size={15} color="#10B981" />
+            <Text style={styles.footerText}>100% Secure & Private • Cloud Encrypted</Text>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -173,7 +405,7 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FBFAF5', // Light cream color matching your theme
+    backgroundColor: '#FBFAF5',
   },
   glowTopRight: {
     position: 'absolute',
@@ -182,7 +414,7 @@ const styles = StyleSheet.create({
     width: 250,
     height: 250,
     borderRadius: 125,
-    backgroundColor: 'rgba(245, 158, 11, 0.18)', // Golden glow
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
   },
   glowBottomLeft: {
     position: 'absolute',
@@ -191,88 +423,207 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: 'rgba(16, 185, 129, 0.12)', // Green glow
-  },
-  glowCenter: {
-    position: 'absolute',
-    top: '40%',
-    left: '20%',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(59, 130, 246, 0.08)', // Blue glow
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
   },
   keyboardView: {
     flex: 1,
   },
   scrollContent: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
+    flexGrow: 1,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 24,
   },
   title: {
-    fontSize: 54,
+    fontSize: 44,
     fontWeight: '900',
-    color: '#2d3748',
+    color: '#0F172A',
     letterSpacing: -1,
-    marginBottom: 12,
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '500',
-    color: '#4a5568',
+    color: '#64748B',
     textAlign: 'center',
-    paddingHorizontal: 20,
-    lineHeight: 26,
+    paddingHorizontal: 16,
+    lineHeight: 20,
+  },
+  tabTrack: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 20,
+    width: '100%',
+    maxWidth: 340,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+  },
+  tabBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  tabBtnTextActive: {
+    color: '#0F172A',
+    fontWeight: '800',
   },
   formContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 24,
-    alignItems: 'center',
     width: '100%',
+    maxWidth: 340,
+  },
+  inputGroup: {
+    marginBottom: 14,
+  },
+  inputLabel: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#475569',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
+  passwordLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  forgotPassLink: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#3B82F6',
+    marginBottom: 6,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    height: 50,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  inputField: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+  eyeBtn: {
+    padding: 6,
+  },
+  primaryButton: {
+    backgroundColor: '#0F172A',
+    height: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+    marginBottom: 18,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  btnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E2E8F0',
+  },
+  dividerText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#94A3B8',
+    paddingHorizontal: 10,
+    letterSpacing: 0.6,
   },
   googleButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 32,
-    height: 64,
-    width: '100%',
-    maxWidth: 340,
-    borderWidth: 1,
-    borderColor: '#edf2f7',
+    borderRadius: 14,
+    height: 50,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    marginBottom: 16,
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 20,
-    elevation: 5,
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
   },
   googleIcon: {
-    marginRight: 12,
+    marginRight: 10,
   },
   googleButtonText: {
-    color: '#1a202c',
-    fontSize: 18,
+    color: '#1E293B',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  switchModeBtn: {
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  switchModeText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  switchModeHighlight: {
+    color: '#0F172A',
     fontWeight: '800',
   },
   footerInfo: {
-    position: 'absolute',
-    bottom: 40,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    marginTop: 24,
   },
   footerText: {
-    color: '#334155',
-    fontSize: 13,
-    fontWeight: '800',
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

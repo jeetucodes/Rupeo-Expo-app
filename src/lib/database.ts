@@ -54,6 +54,51 @@ export async function initDatabase() {
   // No-op for Firestore
 }
 
+// ==================== HIGH-PERFORMANCE IN-MEMORY CACHE ====================
+interface CacheItem<T> {
+  data: T;
+  timestamp: number;
+}
+
+const TX_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+const CAT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const BILLS_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+const NOTIF_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
+const memoryCache = {
+  transactions: new Map<string, CacheItem<any[]>>(),
+  categories: new Map<string, CacheItem<CategoryItem[]>>(),
+  recurringBills: new Map<string, CacheItem<any[]>>(),
+  notifications: new Map<string, CacheItem<any[]>>(),
+};
+
+export function invalidateTransactionsCache(userId?: string) {
+  if (userId) memoryCache.transactions.delete(userId);
+  else memoryCache.transactions.clear();
+}
+
+export function invalidateCategoriesCache(userId?: string) {
+  if (userId) memoryCache.categories.delete(userId);
+  else memoryCache.categories.clear();
+}
+
+export function invalidateBillsCache(userId?: string) {
+  if (userId) memoryCache.recurringBills.delete(userId);
+  else memoryCache.recurringBills.clear();
+}
+
+export function invalidateNotificationsCache(userId?: string) {
+  if (userId) memoryCache.notifications.delete(userId);
+  else memoryCache.notifications.clear();
+}
+
+export function invalidateAllUserCache(userId?: string) {
+  invalidateTransactionsCache(userId);
+  invalidateCategoriesCache(userId);
+  invalidateBillsCache(userId);
+  invalidateNotificationsCache(userId);
+}
+
 // Helper to normalize date to YYYY-MM-DD
 export function normalizeDate(dateStr: string): string {
   if (!dateStr) return getLocalDateString();
@@ -120,6 +165,8 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     created_at: serverTimestamp(),
   });
 
+  invalidateTransactionsCache(userId);
+
   if ((tx.type || 'debit').toLowerCase() === 'debit') {
     checkAndTriggerBudgetAlert(userId).catch(() => {});
   }
@@ -148,6 +195,7 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   if (txData.ref_no !== undefined) dataToUpdate.ref_no = txData.ref_no;
 
   await updateDoc(docRef, dataToUpdate);
+  invalidateTransactionsCache(userId);
 }
 
 export async function getTransactionById(userId: string, txId: string): Promise<any | null> {
@@ -225,20 +273,32 @@ export async function insertTransactionsBatch(
     await batch.commit();
   }
 
+  invalidateTransactionsCache(userId);
   return { imported, skipped };
 }
 
-export async function getAllTransactions(userId: string): Promise<any[]> {
+export async function getAllTransactions(userId: string, forceRefresh = false): Promise<any[]> {
   if (!userId) return [];
+
+  const now = Date.now();
+  const cached = memoryCache.transactions.get(userId);
+  if (!forceRefresh && cached && (now - cached.timestamp < TX_CACHE_TTL_MS)) {
+    return cached.data;
+  }
+
   try {
     const q = query(collection(db, `users/${userId}/transactions`), orderBy('date', 'desc'));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    memoryCache.transactions.set(userId, { data, timestamp: now });
+    return data;
   } catch (err) {
     console.warn('Fallback getting transactions without order:', err);
     const snapshot = await getDocs(collection(db, `users/${userId}/transactions`));
     const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    return list.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+    const data = list.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+    memoryCache.transactions.set(userId, { data, timestamp: now });
+    return data;
   }
 }
 
@@ -251,6 +311,7 @@ export async function getTransactionsByMonth(userId: string, monthYear: string):
 export async function deleteTransaction(userId: string, txId: string) {
   if (!userId || !txId) return;
   await deleteDoc(doc(db, `users/${userId}/transactions`, txId));
+  invalidateTransactionsCache(userId);
 }
 
 export async function deleteAllTransactions(userId: string) {
@@ -272,19 +333,45 @@ export async function deleteAllTransactions(userId: string) {
   if (batchCount > 0) {
     await batch.commit();
   }
+  invalidateTransactionsCache(userId);
 }
 
 // ==================== CATEGORIES ====================
 
-export async function getUserCategories(userId: string): Promise<CategoryItem[]> {
+export async function getUserCategories(userId: string, forceRefresh = false): Promise<CategoryItem[]> {
   if (!userId) return defaultCategories;
+
+  const now = Date.now();
+  const cached = memoryCache.categories.get(userId);
+  if (!forceRefresh && cached && (now - cached.timestamp < CAT_CACHE_TTL_MS)) {
+    return cached.data;
+  }
+
   try {
     const categoriesRef = collection(db, `users/${userId}/categories`);
     const snapshot = await getDocs(categoriesRef);
     if (snapshot.empty) {
+      memoryCache.categories.set(userId, { data: defaultCategories, timestamp: now });
       return defaultCategories;
     }
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CategoryItem));
+    const userCats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CategoryItem));
+
+    // If the database already explicitly holds default categories (isCustom === false)
+    const hasDefaults = userCats.some(c => c.isCustom === false);
+    if (hasDefaults) {
+      memoryCache.categories.set(userId, { data: userCats, timestamp: now });
+      return userCats;
+    }
+
+    // Merge default categories with custom categories, preventing duplicate names
+    const customNames = new Set(userCats.map(c => (c.name || '').trim().toLowerCase()));
+    const remainingDefaults = defaultCategories.filter(
+      d => !customNames.has((d.name || '').trim().toLowerCase())
+    );
+
+    const merged = [...remainingDefaults, ...userCats];
+    memoryCache.categories.set(userId, { data: merged, timestamp: now });
+    return merged;
   } catch (err) {
     console.warn('Could not load categories; using defaults:', err);
     return defaultCategories;
@@ -298,6 +385,7 @@ export async function addCategory(userId: string, category: CategoryItem) {
     ...category,
     isCustom: true,
   });
+  invalidateCategoriesCache(userId);
   return docRef.id;
 }
 
@@ -305,6 +393,7 @@ export async function deleteCategory(userId: string, categoryId: string) {
   if (!userId || !categoryId) return;
   const docRef = doc(db, `users/${userId}/categories`, categoryId);
   await deleteDoc(docRef);
+  invalidateCategoriesCache(userId);
 }
 
 export async function addCustomCategory(userId: string, category: CategoryItem) {
@@ -315,6 +404,7 @@ export async function updateCustomCategory(userId: string, categoryId: string, c
   if (!userId || !categoryId) return;
   const docRef = doc(db, `users/${userId}/categories`, categoryId);
   await updateDoc(docRef, category);
+  invalidateCategoriesCache(userId);
 }
 
 export async function deleteCustomCategory(userId: string, categoryId: string) {
@@ -401,13 +491,22 @@ export function calculateNextCycleDueDate(cycleDays: number, baseDateStr?: strin
   return getLocalDateString(next);
 }
 
-export async function getRecurringBills(userId: string): Promise<RecurringBill[]> {
+export async function getRecurringBills(userId: string, forceRefresh = false): Promise<RecurringBill[]> {
   if (!userId) return [];
+
+  const now = Date.now();
+  const cached = memoryCache.recurringBills.get(userId);
+  if (!forceRefresh && cached && (now - cached.timestamp < BILLS_CACHE_TTL_MS)) {
+    return cached.data;
+  }
+
   try {
     const billsRef = collection(db, `users/${userId}/recurring_bills`);
     const snap = await getDocs(billsRef);
     const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as RecurringBill));
-    return list.sort((a, b) => (a.nextDueDate || '').localeCompare(b.nextDueDate || ''));
+    const sorted = list.sort((a, b) => (a.nextDueDate || '').localeCompare(b.nextDueDate || ''));
+    memoryCache.recurringBills.set(userId, { data: sorted, timestamp: now });
+    return sorted;
   } catch (err) {
     console.warn('Error fetching recurring bills:', err);
     return [];
@@ -448,19 +547,24 @@ export async function saveRecurringBill(userId: string, bill: RecurringBill): Pr
     created_at: serverTimestamp(),
   };
 
+  let resId = bill.id || '';
   if (bill.id) {
     const docRef = doc(db, `users/${userId}/recurring_bills`, bill.id);
     await updateDoc(docRef, payload);
-    return bill.id;
+    resId = bill.id;
   } else {
     const docRef = await addDoc(billsRef, payload);
-    return docRef.id;
+    resId = docRef.id;
   }
+
+  invalidateBillsCache(userId);
+  return resId;
 }
 
 export async function deleteRecurringBill(userId: string, billId: string) {
   if (!userId || !billId) return;
   await deleteDoc(doc(db, `users/${userId}/recurring_bills`, billId));
+  invalidateBillsCache(userId);
 }
 
 export async function payRecurringBill(
@@ -514,6 +618,8 @@ export async function payRecurringBill(
     message: `Payment of ₹${bill.amount.toLocaleString('en-IN')} marked as paid. Next due date is ${nextDate}.`,
     type: 'reminder',
   });
+
+  invalidateBillsCache(userId);
 }
 
 export async function checkBillReminders(userId: string) {
@@ -686,10 +792,19 @@ async function loadUserNotifications(userId: string): Promise<AppNotification[]>
   );
 }
 
-export async function getUserNotifications(userId: string): Promise<AppNotification[]> {
+export async function getUserNotifications(userId: string, forceRefresh = false): Promise<AppNotification[]> {
   if (!userId) return [];
+
+  const now = Date.now();
+  const cached = memoryCache.notifications.get(userId);
+  if (!forceRefresh && cached && (now - cached.timestamp < NOTIF_CACHE_TTL_MS)) {
+    return cached.data;
+  }
+
   try {
-    return await loadUserNotifications(userId);
+    const list = await loadUserNotifications(userId);
+    memoryCache.notifications.set(userId, { data: list, timestamp: now });
+    return list;
   } catch (err) {
     console.warn('Error fetching notifications:', err);
     return [];
@@ -760,6 +875,7 @@ export async function createNotification(
     silentPush: notification.silentPush || false,
     created_at: serverTimestamp(),
   });
+  invalidateNotificationsCache(userId);
   return docRef.id;
 }
 
@@ -767,7 +883,8 @@ export async function markNotificationAsRead(userId: string, notificationId: str
   if (!userId || !notificationId) return;
   try {
     const docRef = doc(db, `users/${userId}/notifications`, notificationId);
-    await updateDoc(docRef, { isRead: true });
+    await setDoc(docRef, { isRead: true }, { merge: true });
+    invalidateNotificationsCache(userId);
   } catch (err) {
     console.warn('Error marking notification as read:', err);
   }
@@ -778,10 +895,29 @@ export async function markNotificationsAsRead(userId: string) {
   try {
     const snap = await getDocs(collection(db, `users/${userId}/notifications`));
     const batch = writeBatch(db);
+    let count = 0;
     snap.forEach(d => {
-      batch.update(doc(db, `users/${userId}/notifications`, d.id), { isRead: true });
+      if (!d.data().isRead) {
+        batch.set(doc(db, `users/${userId}/notifications`, d.id), { isRead: true }, { merge: true });
+        count++;
+      }
     });
-    await batch.commit();
+
+    // Also mark active admin notifications as read for this user in their history
+    try {
+      const adminSnap = await getDocs(query(collection(db, 'admin_notifications'), where('active', '==', true)));
+      adminSnap.forEach(d => {
+        batch.set(doc(db, `users/${userId}/notifications`, d.id), { isRead: true, source: 'admin_notification' }, { merge: true });
+        count++;
+      });
+    } catch {
+      // ignore admin query issues if offline
+    }
+
+    if (count > 0) {
+      await batch.commit();
+    }
+    invalidateNotificationsCache(userId);
   } catch (err) {
     console.warn('Error marking notifications as read:', err);
   }
@@ -1021,7 +1157,7 @@ export async function recordPremiumPayment(
   const cleanData: Record<string, any> = {
     plan: paymentData.plan || 'monthly',
     amount: typeof paymentData.amount === 'number' ? paymentData.amount : 0,
-    paymentMode: paymentData.paymentMode || 'Razorpay',
+    paymentMode: paymentData.paymentMode || 'Google_Play',
     discount: typeof paymentData.discount === 'number' ? paymentData.discount : 0,
     userEmail: paymentData.userEmail || 'unknown',
     userName: paymentData.userName || 'Rupeo User',

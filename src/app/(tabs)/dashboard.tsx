@@ -66,8 +66,8 @@ const getGreetingInfo = () => {
   return { text: 'Good night', icon: 'moon', color: '#8B5CF6' };
 };
 
-const formatAmount = (n: number) =>
-  n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatAmount = (n: number | string) =>
+  (typeof n === 'string' ? parseFloat(n) || 0 : (n ?? 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const PAYMENT_MODE_ICON: Record<string, string> = {
   UPI: 'flash',
@@ -395,6 +395,7 @@ export default function DashboardScreen() {
   const colorAnim = useRef(new Animated.Value(0)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const billsPulseAnim = useRef(new Animated.Value(0)).current;
+  const billsShimmerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     // 1. Smooth, relaxed 60s continuous pastel color transition (Very Slow)
@@ -414,7 +415,7 @@ export default function DashboardScreen() {
           toValue: 1,
           duration: 2800,
           easing: Easing.bezier(0.4, 0, 0.2, 1),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.delay(2200),
       ])
@@ -424,29 +425,44 @@ export default function DashboardScreen() {
       Animated.sequence([
         Animated.timing(billsPulseAnim, {
           toValue: 1,
-          duration: 3600,
+          duration: 1600,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
         Animated.timing(billsPulseAnim, {
           toValue: 0,
-          duration: 3600,
+          duration: 1600,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
       ])
     );
 
+    // 3. Smooth continuous ambient light shimmer for Upcoming Bills card
+    const billsShimmerLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(billsShimmerAnim, {
+          toValue: 1,
+          duration: 2600,
+          easing: Easing.bezier(0.4, 0, 0.2, 1),
+          useNativeDriver: true,
+        }),
+        Animated.delay(1800),
+      ])
+    );
+
     colorLoop.start();
     shimmerLoop.start();
     billsPulseLoop.start();
+    billsShimmerLoop.start();
 
     return () => {
       colorLoop.stop();
       shimmerLoop.stop();
       billsPulseLoop.stop();
+      billsShimmerLoop.stop();
     };
-  }, [billsPulseAnim, colorAnim, shimmerAnim]);
+  }, [billsPulseAnim, billsShimmerAnim, colorAnim, shimmerAnim]);
 
   // Card Background Color Interpolation
   const animatedCardBg = colorAnim.interpolate({
@@ -485,14 +501,14 @@ export default function DashboardScreen() {
 
 
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh = false) => {
     if (!user?.uid) return;
     try {
       const [allTxs, userCats, notifs, bills] = await Promise.all([
-        getAllTransactions(user.uid),
-        getUserCategories(user.uid),
-        getUserNotifications(user.uid).catch(() => []),
-        getRecurringBills(user.uid).catch(() => []),
+        getAllTransactions(user.uid, forceRefresh),
+        getUserCategories(user.uid, forceRefresh),
+        getUserNotifications(user.uid, forceRefresh).catch(() => []),
+        getRecurringBills(user.uid, forceRefresh).catch(() => []),
       ]);
 
       setCategories(userCats);
@@ -539,13 +555,13 @@ export default function DashboardScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      loadData(false);
     }, [user?.uid])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData();
+    loadData(true);
   };
 
   const startingBalance = Number((user as any)?.startingBalance) || 0;
@@ -1026,32 +1042,18 @@ export default function DashboardScreen() {
               <Text style={styles.userNameText} numberOfLines={1}>
                 {firstName}
               </Text>
-              {isPremium && (
-                <View style={styles.vipNameBadge}>
-                  <Text style={styles.vipNameBadgeText}>VIP 👑</Text>
-                </View>
-              )}
             </View>
           </View>
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
-          {appConfig?.showProFeatures !== false && (
-            <TouchableOpacity
-              style={[styles.proCrownHeaderBtn, isPremium && styles.proCrownHeaderBtnActive]}
-              onPress={() => router.push('/premium')}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="sparkles" size={14} color={isPremium ? '#10B981' : '#F59E0B'} />
-              <Text style={[styles.proCrownHeaderBadgeText, isPremium && styles.proCrownHeaderBadgeTextActive]}>
-                {isPremium ? 'PRO' : 'GO PRO'}
-              </Text>
-            </TouchableOpacity>
-          )}
 
           <TouchableOpacity
             style={styles.iconBtn}
-            onPress={() => router.push('/notifications')}
+            onPress={() => {
+              setUnreadNotifications(0);
+              router.push('/notifications');
+            }}
             activeOpacity={0.7}
           >
             <Ionicons name="notifications-outline" size={20} color="#1E293B" />
@@ -1197,50 +1199,136 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* CLEAN UPCOMING BILLS & REMINDERS QUICK BUTTON */}
+        {/* PREMIUM ANIMATED UPCOMING BILLS & REMINDERS QUICK WIDGET */}
         <TouchableOpacity
           style={styles.billsQuickBtn}
           onPress={() => router.push('/reminders')}
-          activeOpacity={0.82}
+          activeOpacity={0.85}
         >
-          <View style={styles.billsQuickLeft}>
-            <View style={[styles.billsQuickIconWrap, homeUpcomingBills.length > 0 && styles.billsQuickIconWrapAlert]}>
-              <Ionicons
-                name={homeUpcomingBills.length > 0 ? 'notifications' : 'calendar-outline'}
-                size={20}
-                color={homeUpcomingBills.length > 0 ? '#EF4444' : '#2563EB'}
+          {/* AMBIENT BACKGROUND GRADIENT + MOVING LIGHT SHEEN */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <LinearGradient
+              colors={
+                homeUpcomingBills.length > 0
+                  ? ['#FFF7F7', '#FFFFFF', '#FFF1F2']
+                  : recurringBills.length > 0
+                  ? ['#F8FAFC', '#FFFFFF', '#F0F9FF']
+                  : ['#F8FAFC', '#FFFFFF', '#F1F5F9']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            {/* Diagonal ambient shimmer sweep */}
+            <Animated.View
+              style={[
+                styles.billsShimmerBeam,
+                {
+                  transform: [
+                    {
+                      translateX: billsShimmerAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-180, 420],
+                      }),
+                    },
+                    { rotate: '25deg' },
+                  ],
+                },
+              ]}
+            >
+              <LinearGradient
+                colors={[
+                  'rgba(255, 255, 255, 0)',
+                  homeUpcomingBills.length > 0
+                    ? 'rgba(239, 68, 68, 0.12)'
+                    : 'rgba(59, 130, 246, 0.14)',
+                  'rgba(255, 255, 255, 0.55)',
+                  'rgba(255, 255, 255, 0)',
+                ]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{ width: 110, height: '240%' }}
               />
-              {homeUpcomingBills.length > 0 && <View style={styles.billsQuickAlertDot} />}
-            </View>
+            </Animated.View>
+          </View>
+
+          {/* LEFT ICON & TEXT */}
+          <View style={styles.billsQuickLeft}>
+            <Animated.View
+              style={[
+                styles.billsQuickIconWrap,
+                homeUpcomingBills.length > 0 ? styles.billsQuickIconWrapAlert : styles.billsQuickIconWrapNormal,
+                homeUpcomingBills.length > 0 && {
+                  transform: [
+                    {
+                      scale: billsPulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.08],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Ionicons
+                name={
+                  homeUpcomingBills.length > 0
+                    ? 'alarm'
+                    : recurringBills.length > 0
+                    ? 'calendar'
+                    : 'calendar-outline'
+                }
+                size={19}
+                color={
+                  homeUpcomingBills.length > 0
+                    ? '#DC2626'
+                    : recurringBills.length > 0
+                    ? '#2563EB'
+                    : '#64748B'
+                }
+              />
+              {homeUpcomingBills.length > 0 && (
+                <View style={styles.billsQuickAlertDot} />
+              )}
+            </Animated.View>
 
             <View style={styles.billsQuickTextWrap}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={styles.billsQuickTitleRow}>
                 <Text style={styles.billsQuickTitle}>Upcoming Bills</Text>
                 {homeUpcomingBills.length > 0 ? (
                   <View style={styles.billsDueBadge}>
+                    <View style={styles.billsDueDot} />
                     <Text style={styles.billsDueBadgeText}>{homeUpcomingBills.length} Due Soon</Text>
                   </View>
                 ) : recurringBills.length > 0 ? (
                   <View style={styles.billsAllPaidBadge}>
+                    <Ionicons name="checkmark-circle" size={11} color="#059669" style={{ marginRight: 2 }} />
                     <Text style={styles.billsAllPaidBadgeText}>{recurringBills.length} Active</Text>
                   </View>
-                ) : null}
+                ) : (
+                  <View style={styles.billsTrackBadge}>
+                    <Ionicons name="flash-outline" size={10} color="#6366F1" style={{ marginRight: 2 }} />
+                    <Text style={styles.billsTrackBadgeText}>Auto Alerts</Text>
+                  </View>
+                )}
               </View>
+
               <Text style={styles.billsQuickSubtitle} numberOfLines={1}>
                 {homeUpcomingBills.length > 0
-                  ? `Next: ${homeUpcomingBills[0].title} (${curr}${formatAmount(homeUpcomingBills[0].amount)}) • Tap to view`
+                  ? `Next: ${homeUpcomingBills[0].title} • ${curr}${formatAmount(homeUpcomingBills[0].amount)} (${getBillDueStatus(homeUpcomingBills[0].nextDueDate).label})`
                   : recurringBills.length > 0
                   ? nextFutureBill
-                    ? `Next: ${nextFutureBill.title} (${nextFutureBill.nextDueDate})`
-                    : `All bills up to date`
-                  : `Tap to track Jio, rent, tiffin & bill reminders`}
+                    ? `Next: ${nextFutureBill.title} • ${curr}${formatAmount(nextFutureBill.amount)} (${getBillDueStatus(nextFutureBill.nextDueDate).label})`
+                    : `✨ All upcoming bills are clear`
+                  : `Track Jio, Airtel, Rent, Tiffin & utility dues`}
               </Text>
             </View>
           </View>
 
+          {/* RIGHT CHEVRON */}
           <View style={styles.billsQuickRight}>
             <View style={styles.billsQuickArrowWrap}>
-              <Ionicons name="chevron-forward" size={16} color="#64748B" />
+              <Ionicons name="chevron-forward" size={15} color="#475569" />
             </View>
           </View>
         </TouchableOpacity>
@@ -2373,21 +2461,30 @@ const styles = StyleSheet.create({
   },
   billsQuickBtn: {
     marginHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 16,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
+    borderWidth: 1.2,
     borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    position: 'relative',
     shadowColor: '#0F172A',
     shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
     elevation: 2,
+  },
+  billsShimmerBeam: {
+    position: 'absolute',
+    top: -20,
+    left: 0,
+    bottom: -20,
+    width: 110,
   },
   billsQuickLeft: {
     flexDirection: 'row',
@@ -2396,41 +2493,62 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   billsQuickIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
     position: 'relative',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  billsQuickIconWrapNormal: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#DBEAFE',
   },
   billsQuickIconWrapAlert: {
     backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
   },
   billsQuickAlertDot: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 8,
+    right: 8,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
     backgroundColor: '#EF4444',
   },
   billsQuickTextWrap: {
     flex: 1,
   },
+  billsQuickTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   billsQuickTitle: {
-    fontSize: 15,
+    fontSize: 14.5,
     fontWeight: '800',
     color: '#0F172A',
     letterSpacing: -0.2,
   },
   billsDueBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FEE2E2',
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
+    gap: 4,
+  },
+  billsDueDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#DC2626',
   },
   billsDueBadgeText: {
     color: '#DC2626',
@@ -2438,6 +2556,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   billsAllPaidBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 7,
     paddingVertical: 2,
@@ -2448,29 +2568,28 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
   },
+  billsTrackBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  billsTrackBadgeText: {
+    color: '#4F46E5',
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
   billsQuickSubtitle: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#64748B',
-    fontWeight: '500',
+    fontWeight: '600',
     marginTop: 2,
   },
   billsQuickRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-  },
-  billsQuickAddBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#0F172A',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
   },
   billsQuickArrowWrap: {
     width: 28,
@@ -2479,6 +2598,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   aiAdvisorGradient: {
     paddingVertical: 14,
