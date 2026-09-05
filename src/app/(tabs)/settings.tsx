@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
-  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -160,14 +159,17 @@ function BottomSheetModal({
 
 function SettingsRow({
   icon,
-  iconBg = '#ffffff',
-  iconColor = '#1C1C1E',
+  iconBg = '#F1F5F9',
+  iconColor = '#0F172A',
   label,
   value,
   labelColor,
   onPress,
   loading = false,
   showChevron = true,
+  badgeText,
+  badgeBg,
+  badgeColor,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   iconBg?: string;
@@ -178,6 +180,9 @@ function SettingsRow({
   onPress?: () => void;
   loading?: boolean;
   showChevron?: boolean;
+  badgeText?: string;
+  badgeBg?: string;
+  badgeColor?: string;
 }) {
   const Wrapper = onPress ? TouchableOpacity : View;
   return (
@@ -189,10 +194,17 @@ function SettingsRow({
       accessibilityLabel={label}
     >
       <View style={[styles.infoIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={16} color={iconColor} />
+        <Ionicons name={icon} size={20} color={iconColor} />
       </View>
       <View style={styles.infoTextContainer}>
-        <Text style={[styles.infoLabel, labelColor && { color: labelColor }]}>{label}</Text>
+        <View style={styles.infoLabelRow}>
+          <Text style={[styles.infoLabel, labelColor && { color: labelColor }]}>{label}</Text>
+          {!!badgeText && (
+            <View style={[styles.rowBadge, { backgroundColor: badgeBg || '#F1F5F9' }]}>
+              <Text style={[styles.rowBadgeText, { color: badgeColor || '#475569' }]}>{badgeText}</Text>
+            </View>
+          )}
+        </View>
         {!!value && (
           <Text style={styles.infoValue} numberOfLines={1} ellipsizeMode="tail">
             {value}
@@ -200,7 +212,7 @@ function SettingsRow({
         )}
       </View>
       {onPress && (loading ? <ActivityIndicator size="small" color={iconColor} /> : showChevron && (
-        <Ionicons name="chevron-forward" size={16} color="#ccc" />
+        <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
       ))}
     </Wrapper>
   );
@@ -830,48 +842,47 @@ export default function SettingsScreen() {
 
           {/* Data Management */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('data_management')}</Text>
-            <View style={styles.infoCard}>
-              <View style={styles.backupActions}>
-                <TouchableOpacity
-                  style={styles.backupAction}
-                  onPress={() => setShowExportModal(true)}
-                  disabled={isExporting}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('export_data')}
-                >
-                  <View style={[styles.backupActionIcon, { backgroundColor: '#ECFDF5' }]}>
-                    {isExporting ? (
-                      <ActivityIndicator size="small" color="#10B981" />
-                    ) : (
-                      <Ionicons name="cloud-download-outline" size={22} color="#10B981" />
-                    )}
-                  </View>
-                  <Text style={[styles.backupActionLabel, { color: '#047857' }]}>{t('export_data')}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.backupAction}
-                  onPress={() => setShowImportModal(true)}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('import_data')}
-                >
-                  <View style={[styles.backupActionIcon, { backgroundColor: '#EFF6FF' }]}>
-                    <Ionicons name="cloud-upload-outline" size={22} color="#3B82F6" />
-                  </View>
-                  <Text style={[styles.backupActionLabel, { color: '#2563EB' }]}>{t('import_data')}</Text>
-                </TouchableOpacity>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>{t('data_management')}</Text>
+              <View style={styles.securityHeaderBadge}>
+                <Ionicons name="shield-checkmark" size={11} color="#059669" style={{ marginRight: 4 }} />
+                <Text style={styles.securityHeaderBadgeText}>SECURE BACKUPS</Text>
               </View>
-              <View style={styles.infoDivider} />
+            </View>
+            <View style={styles.infoCard}>
               <SettingsRow
-                icon="layers-outline"
-                iconBg="#FFF7ED"
-                iconColor="#EA580C"
+                icon="cloud-download-outline"
+                iconBg="#ECFDF5"
+                iconColor="#059669"
+                label={t('export_data')}
+                value="Download full JSON or CSV backup"
+                badgeText="JSON • CSV"
+                badgeBg="#ECFDF5"
+                badgeColor="#047857"
+                onPress={() => setShowExportModal(true)}
+                loading={isExporting}
+              />
+              <SettingsRow
+                icon="cloud-upload-outline"
+                iconBg="#EFF6FF"
+                iconColor="#2563EB"
+                label={t('import_data')}
+                value="Restore transactions from backup file"
+                badgeText="RESTORE"
+                badgeBg="#EFF6FF"
+                badgeColor="#1D4ED8"
+                onPress={() => setShowImportModal(true)}
+              />
+              <SettingsRow
+                icon="trash-outline"
+                iconBg="#FEE2E2"
+                iconColor="#DC2626"
                 label={t('delete_all_data')}
-                labelColor="#EA580C"
+                labelColor="#DC2626"
                 value={t('delete_all_desc')}
+                badgeText="RESET"
+                badgeBg="#FEF2F2"
+                badgeColor="#DC2626"
                 onPress={() => setDeleteDataModalVisible(true)}
               />
             </View>
@@ -880,34 +891,62 @@ export default function SettingsScreen() {
           {/* Help & Support */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Help & Support</Text>
-            <View style={styles.infoCard}>
-              <SettingsRow
-                icon="chatbubbles-outline"
-                iconBg="#EEF2FF"
-                iconColor="#4F46E5"
-                label="Contact Support"
-                value="Inquiries, bugs & assistance"
-                onPress={() => setShowSupportModal(true)}
-              />
-              <View style={styles.infoDivider} />
-              <SettingsRow
-                icon="mail-outline"
-                iconBg="#ECFDF5"
-                iconColor="#10B981"
-                label="Email Support"
-                value="support@rupeo.app"
-                onPress={() => Linking.openURL('mailto:support@rupeo.app?subject=Rupeo%20Support%20Request')}
-              />
-            </View>
+            <TouchableOpacity
+              style={styles.supportCard}
+              onPress={() => setShowSupportModal(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Contact Rupeo Support"
+            >
+              <View style={styles.supportCardContent}>
+                {/* Left: Branded Navy & Gold Icon */}
+                <View style={styles.supportIconWrapper}>
+                  <View style={styles.supportIconBg}>
+                    <Ionicons name="headset" size={22} color="#FFD740" />
+                  </View>
+                  <View style={styles.supportStatusDot} />
+                </View>
+
+                {/* Center: Title, Subtitle, Live Tag */}
+                <View style={styles.supportTextWrap}>
+                  <View style={styles.supportTitleRow}>
+                    <Text style={styles.supportCardTitle}>Contact Support</Text>
+                    <View style={styles.supportLiveBadge}>
+                      <View style={styles.supportLiveDot} />
+                      <Text style={styles.supportLiveText}>24/7 ACTIVE</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.supportCardDesc}>
+                    Inquiries, live ticket status & assistance
+                  </Text>
+                </View>
+
+                {/* Right: Chevron */}
+                <View style={styles.supportActionBtn}>
+                  <Ionicons name="chevron-forward" size={18} color="#0F172A" />
+                </View>
+              </View>
+            </TouchableOpacity>
           </View>
 
           {/* Legal */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('legal')}</Text>
             <View style={styles.infoCard}>
-              <SettingsRow icon="document-text-outline" label={t('terms_conditions')} onPress={() => setLegalDoc('terms')} />
-              <View style={styles.infoDivider} />
-              <SettingsRow icon="shield-checkmark-outline" label={t('privacy_policy')} onPress={() => setLegalDoc('privacy')} />
+              <SettingsRow
+                icon="document-text-outline"
+                iconBg="#F1F5F9"
+                iconColor="#475569"
+                label={t('terms_conditions')}
+                onPress={() => setLegalDoc('terms')}
+              />
+              <SettingsRow
+                icon="shield-checkmark-outline"
+                iconBg="#ECFDF5"
+                iconColor="#059669"
+                label={t('privacy_policy')}
+                onPress={() => setLegalDoc('privacy')}
+              />
             </View>
           </View>
 
@@ -1679,28 +1718,179 @@ const styles = StyleSheet.create({
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    shadowColor: '#64748B',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 3 },
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
     shadowRadius: 8,
     elevation: 2,
   },
   infoIconBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
   infoTextContainer: { flex: 1 },
-  infoLabel: { fontSize: 14, color: '#0F172A', marginBottom: 2, fontWeight: '700' },
+  infoLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
+  infoLabel: { fontSize: 14, color: '#0F172A', fontWeight: '700' },
   infoValue: { fontSize: 12, color: '#64748B', fontWeight: '500' },
   infoDivider: { display: 'none' },
+
+  rowBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  rowBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 16,
+  },
+  sectionTitleNoMargin: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  securityHeaderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  securityHeaderBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#047857',
+    letterSpacing: 0.5,
+  },
+
+  // Help & Support Card
+  supportCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  supportCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  supportIconWrapper: {
+    position: 'relative',
+    marginRight: 14,
+  },
+  supportIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  supportStatusDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#10B981',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  supportTextWrap: {
+    flex: 1,
+    marginRight: 8,
+  },
+  supportTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 3,
+  },
+  supportCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  supportLiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  supportLiveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#B45309',
+    marginRight: 4,
+  },
+  supportLiveText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#B45309',
+    letterSpacing: 0.3,
+  },
+  supportCardDesc: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 17,
+    fontWeight: '500',
+  },
+  supportActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   prefRow: {
     padding: 12,

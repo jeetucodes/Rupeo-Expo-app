@@ -1623,19 +1623,86 @@ export interface SupportMessage {
   message: string;
   source: 'maintenance' | 'settings';
   userId?: string;
-  status?: 'unread' | 'read' | 'resolved';
+  status?: 'unread' | 'read' | 'resolved' | 'open' | 'in_progress' | 'closed';
+  adminReply?: string;
+  repliedAt?: string;
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export async function submitSupportMessage(
   data: Omit<SupportMessage, 'id' | 'createdAt' | 'status'>
 ): Promise<string> {
   if (!db) throw new Error('Database not initialized');
+  const now = new Date().toISOString();
   const docRef = await addDoc(collection(db, 'support_messages'), {
     ...data,
-    status: 'unread',
-    createdAt: new Date().toISOString(),
+    status: 'open',
+    createdAt: now,
+    updatedAt: now,
   });
   return docRef.id;
 }
+
+export function subscribeUserSupportMessages(
+  userId: string,
+  callback: (messages: SupportMessage[]) => void
+): () => void {
+  if (!db || !userId) {
+    callback([]);
+    return () => {};
+  }
+
+  try {
+    const q = query(
+      collection(db, 'support_messages'),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+
+    return onSnapshot(
+      q,
+      (snap) => {
+        const messages: SupportMessage[] = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<SupportMessage, 'id'>),
+        }));
+        callback(messages);
+      },
+      (err) => {
+        console.warn('subscribeUserSupportMessages error with orderBy, falling back:', err);
+        // Fallback query without orderBy in case compound index is pending
+        const fallbackQ = query(
+          collection(db, 'support_messages'),
+          where('userId', '==', userId)
+        );
+        return onSnapshot(
+          fallbackQ,
+          (snap) => {
+            const messages: SupportMessage[] = snap.docs
+              .map((d) => ({
+                id: d.id,
+                ...(d.data() as Omit<SupportMessage, 'id'>),
+              }))
+              .sort(
+                (a, b) =>
+                  new Date(b.createdAt || 0).getTime() -
+                  new Date(a.createdAt || 0).getTime()
+              );
+            callback(messages);
+          },
+          (fallbackErr) => {
+            console.error('subscribeUserSupportMessages fallback failed:', fallbackErr);
+            callback([]);
+          }
+        );
+      }
+    );
+  } catch (err) {
+    console.error('Failed to subscribe to user support messages:', err);
+    callback([]);
+    return () => {};
+  }
+}
+
 
