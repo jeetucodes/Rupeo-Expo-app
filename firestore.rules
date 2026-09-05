@@ -7,7 +7,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return signedIn() && request.auth.token.email == 'admin@rupeo.app';
+      return signedIn() && (
+        request.auth.token.email == 'admin@rupeo.app' ||
+        request.auth.token.email == 'ya041304@gmail.com'
+      );
     }
 
     // App Global Config (Realtime Master Toggles: maintenanceMode, showAds, showProFeatures)
@@ -19,7 +22,17 @@ service cloud.firestore {
     // Coupons Collection
     match /coupons/{couponId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        signedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'used_count', 'redeemedUsers'])
+      );
+    }
+
+    // Support Messages (submitted from Maintenance Screen or Help & Support in Settings)
+    match /support_messages/{messageId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
     }
 
     function validAudience() {

@@ -14,11 +14,19 @@
       },
       "oauth_client": [
         {
-          "client_id": "26927139619-75egbd02f3id06fbdeqgui1pcje4ucmu.apps.googleusercontent.com",
+          "client_id": "26927139619-a0006m2e3umeuful9q9mcf78hbf9oot8.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.innovatexlabs.paisewaise",
-            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+            "certificate_hash": "5171b8740a2d47bc1e4a6b87e14ba8a06e9bc3e6"
+          }
+        },
+        {
+          "client_id": "26927139619-sotioonpetpaltjbe20fqn06trj4ksei.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.innovatexlabs.paisewaise",
+            "certificate_hash": "d4c55d135683420c2cf5062d9f63b26d4ce81a84"
           }
         },
         {

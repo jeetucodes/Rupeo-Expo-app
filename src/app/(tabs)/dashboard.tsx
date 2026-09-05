@@ -25,6 +25,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
   getAllTransactions,
+  sortTransactionsRecentFirst,
   insertTransaction,
   getUserCategories,
   getUserNotifications,
@@ -535,7 +536,7 @@ export default function DashboardScreen() {
       setTotalSpend(totalS);
       setTotalCredit(totalC);
       setThisMonthSpend(curMonthS);
-      setTransactions(allTxs);
+      setTransactions(sortTransactionsRecentFirst(allTxs));
 
       // Trigger automatic 3-day reminder checks & budget alerts
       checkBillReminders(user.uid).catch(() => {});
@@ -703,14 +704,16 @@ export default function DashboardScreen() {
   }, [monthlyBudget, thisMonthSpend]);
 
   const filteredTransactions = useMemo(() => {
-    if (selectedCategory === 'All') return transactions;
-    return transactions.filter(
-      tx => (tx.category || 'Others').toLowerCase() === selectedCategory.toLowerCase()
-    );
+    const list = selectedCategory === 'All'
+      ? transactions
+      : transactions.filter(
+          tx => (tx.category || 'Others').toLowerCase() === selectedCategory.toLowerCase()
+        );
+    return sortTransactionsRecentFirst(list);
   }, [transactions, selectedCategory]);
 
   const recentTransactions = useMemo(() => {
-    return filteredTransactions.slice(0, 8);
+    return sortTransactionsRecentFirst(filteredTransactions).slice(0, 8);
   }, [filteredTransactions]);
 
   const topCategoryData = useMemo(() => {

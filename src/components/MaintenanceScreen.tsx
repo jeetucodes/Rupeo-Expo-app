@@ -11,10 +11,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import Toast from 'react-native-toast-message';
+import { HelpSupportModal } from '@/components/help-support-modal';
 
 export default function MaintenanceScreen() {
   const { refreshConfig } = useAuth();
   const [checking, setChecking] = useState(false);
+  const [supportModalVisible, setSupportModalVisible] = useState(false);
 
   const handleRefresh = async () => {
     setChecking(true);
@@ -39,13 +41,7 @@ export default function MaintenanceScreen() {
   };
 
   const handleContactSupport = () => {
-    Linking.openURL('mailto:support@rupeo.app?subject=Rupeo%20Maintenance%20Inquiry').catch(() => {
-      Toast.show({
-        type: 'info',
-        text1: 'Support Email',
-        text2: 'Please email us at support@rupeo.app',
-      });
-    });
+    setSupportModalVisible(true);
   };
 
   return (
@@ -125,6 +121,12 @@ export default function MaintenanceScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      <HelpSupportModal
+        visible={supportModalVisible}
+        onClose={() => setSupportModalVisible(false)}
+        source="maintenance"
+      />
     </SafeAreaView>
   );
 }

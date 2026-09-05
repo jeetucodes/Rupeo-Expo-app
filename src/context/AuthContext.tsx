@@ -6,6 +6,7 @@ import { getStartingBalanceProfile, getUserSettings, saveUserSettings, setPremiu
 
 export interface AppConfig {
   showProFeatures: boolean;
+  showSubscriptions: boolean;
   showAds: boolean;
   maintenanceMode: boolean;
 }
@@ -15,6 +16,8 @@ interface AuthContextType {
   loading: boolean;
   settings: UserSettings | null;
   isPremium: boolean;
+  currentPlan: string | null;
+  getCurrentPlan: () => string | null;
   appConfig: AppConfig;
   setSettings: (settings: UserSettings) => void;
   refreshSettings: () => Promise<void>;
@@ -37,8 +40,11 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   settings: null,
   isPremium: false,
+  currentPlan: null,
+  getCurrentPlan: () => null,
   appConfig: {
     showProFeatures: true,
+    showSubscriptions: true,
     showAds: true,
     maintenanceMode: false,
   },
@@ -61,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Real-time Admin Config State
   const [appConfig, setAppConfig] = useState<AppConfig>({
     showProFeatures: true,
+    showSubscriptions: true,
     showAds: true,
     maintenanceMode: false,
   });
@@ -73,9 +80,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (snap) => {
         if (snap.exists()) {
           const d = snap.data();
+          const subsVisible =
+            d.showSubscriptions !== false &&
+            d.showProFeatures !== false &&
+            !d.hideSubscriptions &&
+            !d.hidePro;
           setAppConfig({
-            showProFeatures: d.showProFeatures !== false,
-            showAds: d.showAds !== false,
+            showProFeatures: d.showProFeatures !== false && !d.hidePro,
+            showSubscriptions: subsVisible,
+            showAds: d.showAds !== false && !d.hideAds,
             maintenanceMode: Boolean(d.maintenanceMode),
           });
         }
@@ -93,9 +106,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const snap = await getDoc(doc(db, 'app_config', 'global'));
       if (snap.exists()) {
         const d = snap.data();
+        const subsVisible =
+          d.showSubscriptions !== false &&
+          d.showProFeatures !== false &&
+          !d.hideSubscriptions &&
+          !d.hidePro;
         setAppConfig({
-          showProFeatures: d.showProFeatures !== false,
-          showAds: d.showAds !== false,
+          showProFeatures: d.showProFeatures !== false && !d.hidePro,
+          showSubscriptions: subsVisible,
+          showAds: d.showAds !== false && !d.hideAds,
           maintenanceMode: Boolean(d.maintenanceMode),
         });
       }
@@ -222,8 +241,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // All premium features 100% free and unlocked for all users
-  const isPremiumUser = true;
+  // Premium status: driven by Firestore `is_premium` field on user doc.
+  // Updated by verifyAndActivatePurchase() after a successful IAP purchase.
+  const isPremiumUser = Boolean(user?.isPremium);
+  const userCurrentPlan = isPremiumUser ? (user?.premiumPlan ?? 'monthly') : null;
+  const getCurrentPlanHelper = () => userCurrentPlan;
 
   return (
     <AuthContext.Provider
@@ -232,6 +254,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         settings,
         isPremium: isPremiumUser,
+        currentPlan: userCurrentPlan,
+        getCurrentPlan: getCurrentPlanHelper,
         appConfig,
         setSettings,
         refreshSettings,

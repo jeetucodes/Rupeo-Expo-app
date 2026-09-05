@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,6 +31,8 @@ import { CurrencySelectorModal } from '@/components/CurrencySelectorModal';
 import { VipAvatar } from '@/components/VipAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
+import { restorePurchases, getPlanDisplayName } from '@/lib/iap';
+import { HelpSupportModal } from '@/components/help-support-modal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -209,7 +212,7 @@ function SettingsRow({
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, logout, settings, setSettings, refreshUser, isPremium, downgradeFromPremium } = useAuth();
+  const { user, logout, settings, setSettings, refreshUser, isPremium, currentPlan, downgradeFromPremium, appConfig } = useAuth();
   const { t } = useTranslation();
 
   const [totalSpend, setTotalSpend] = useState<number>(0);
@@ -232,6 +235,39 @@ export default function SettingsScreen() {
   const [isDeletingData, setIsDeletingData] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [showCurrencyModal, setShowCurrencyModal] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
+
+  const handleRestorePurchases = async () => {
+    if (!user?.uid) return;
+    setIsRestoring(true);
+    try {
+      const restored = await restorePurchases(user.uid);
+      if (restored) {
+        await refreshUser();
+        Toast.show({
+          type: 'success',
+          text1: 'Subscription Restored! 🎉',
+          text2: 'Aapka Rupeo Pro subscription restore ho gaya hai.',
+        });
+      } else {
+        Toast.show({
+          type: 'info',
+          text1: 'No Active Subscription',
+          text2: 'Is Google account pe koi active subscription nahi mila.',
+        });
+      }
+    } catch (err: any) {
+      console.error('Restore error:', err);
+      Toast.show({
+        type: 'error',
+        text1: 'Restore Failed',
+        text2: err?.message || 'Please try again later.',
+      });
+    } finally {
+      setIsRestoring(false);
+    }
+  };
 
   const selectedCurrencyObj = ALL_CURRENCIES.find(c => c.symbol === settings?.currency || c.code === settings?.currency);
 
@@ -378,7 +414,7 @@ export default function SettingsScreen() {
     if (!user) return;
     try {
       setIsDeletingAccount(true);
-      
+
       // Force a recent login before sensitive operations to prevent auth/requires-recent-login
       try {
         await promptGoogleSignIn();
@@ -555,6 +591,171 @@ export default function SettingsScreen() {
             </View>
           </TouchableOpacity>
 
+          {/* Subscription & Membership (Remotely Controlled by Admin via Firestore) */}
+          {appConfig?.showSubscriptions !== false && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Subscription & Membership</Text>
+              {isPremium ? (
+                <LinearGradient
+                  colors={['#061A14', '#064E3B', '#0B132B']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.proCardCompact}
+                >
+                  {/* Top Bar */}
+                  <View style={styles.proCompactHeader}>
+                    <View style={styles.proCompactBadge}>
+                      <Ionicons name="shield-checkmark" size={13} color="#34D399" />
+                      <Text style={styles.proCompactBadgeText}>RUPEO PRO</Text>
+                    </View>
+                    <View style={styles.proActiveIndicatorV2}>
+                      <View style={styles.proActiveDotV2} />
+                      <Text style={styles.proActiveStatusTextV2}>Active</Text>
+                    </View>
+                  </View>
+
+                  {/* Plan Name & Tagline */}
+                  <View style={styles.proCompactTitleRow}>
+                    <Ionicons name="diamond" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
+                    <Text style={styles.proCompactPlanName}>
+                      {getPlanDisplayName(currentPlan || (user as any)?.premiumPlan)}
+                    </Text>
+                  </View>
+
+                  {/* Highlights Row */}
+                  <View style={styles.proCompactPerksRow}>
+                    <View style={styles.proCompactPerk}>
+                      <Ionicons name="checkmark-circle" size={13} color="#34D399" />
+                      <Text style={styles.proCompactPerkText}>100% Ad-Free</Text>
+                    </View>
+                    <View style={styles.proCompactPerk}>
+                      <Ionicons name="checkmark-circle" size={13} color="#34D399" />
+                      <Text style={styles.proCompactPerkText}>Unlimited PDFs</Text>
+                    </View>
+                    <View style={styles.proCompactPerk}>
+                      <Ionicons name="checkmark-circle" size={13} color="#34D399" />
+                      <Text style={styles.proCompactPerkText}>Reminders</Text>
+                    </View>
+                  </View>
+
+                  {/* Actions */}
+                  <View style={styles.proCompactActions}>
+                    <TouchableOpacity
+                      style={styles.proCompactChangeBtn}
+                      onPress={() => router.push('/premium')}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityLabel="Change Plan"
+                    >
+                      <Ionicons name="swap-horizontal" size={14} color="#FFFFFF" style={{ marginRight: 5 }} />
+                      <Text style={styles.proCompactBtnText}>Change Plan</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.proCompactSyncBtn}
+                      onPress={handleRestorePurchases}
+                      disabled={isRestoring}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Sync Purchases"
+                    >
+                      {isRestoring ? (
+                        <ActivityIndicator size="small" color="#94A3B8" />
+                      ) : (
+                        <>
+                          <Ionicons name="refresh-outline" size={14} color="#94A3B8" style={{ marginRight: 4 }} />
+                          <Text style={styles.proCompactSyncText}>Sync</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </LinearGradient>
+              ) : (
+                <LinearGradient
+                  colors={['#0A0F1D', '#111827', '#1E1B4B']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.proCardCompact}
+                >
+                  {/* Top Bar: Badge & Price */}
+                  <View style={styles.proCompactHeader}>
+                    <View style={styles.proBadgeGoldCompact}>
+                      <Ionicons name="sparkles" size={12} color="#F59E0B" />
+                      <Text style={styles.proBadgeGoldTextCompact}>RUPEO PRO</Text>
+                    </View>
+                    <View style={styles.proPriceTagCompact}>
+                      <Text style={styles.proPriceTextCompact}>From ₹66/mo</Text>
+                      <View style={styles.proSavePillCompact}>
+                        <Text style={styles.proSavePillTextCompact}>33% OFF</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Headline */}
+                  <View style={styles.proCompactBody}>
+                    <Text style={styles.proCompactTitle}>Upgrade to Pro</Text>
+                    <Text style={styles.proCompactDesc} numberOfLines={1}>
+                      Ad-free, unlimited PDF reports, reminders & custom categories
+                    </Text>
+                  </View>
+
+                  {/* Compact Feature Pills */}
+                  <View style={styles.proCompactPerksRow}>
+                    <View style={styles.proFeaturePill}>
+                      <Ionicons name="ban" size={11} color="#EF4444" />
+                      <Text style={styles.proFeaturePillText}>Ad-Free</Text>
+                    </View>
+                    <View style={styles.proFeaturePill}>
+                      <Ionicons name="document-text" size={11} color="#38BDF8" />
+                      <Text style={styles.proFeaturePillText}>Unlimited PDFs</Text>
+                    </View>
+                    <View style={styles.proFeaturePill}>
+                      <Ionicons name="notifications" size={11} color="#FBBF24" />
+                      <Text style={styles.proFeaturePillText}>Reminders</Text>
+                    </View>
+                  </View>
+
+                  {/* Action Buttons Row */}
+                  <View style={styles.proCompactActions}>
+                    <TouchableOpacity
+                      style={styles.proUpgradeBtnCompact}
+                      onPress={() => router.push('/premium')}
+                      activeOpacity={0.88}
+                      accessibilityRole="button"
+                      accessibilityLabel="Upgrade to Rupeo Pro"
+                    >
+                      <LinearGradient
+                        colors={['#F59E0B', '#D97706']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.proUpgradeGradientCompact}
+                      >
+                        <Ionicons name="diamond" size={14} color="#0B0F19" style={{ marginRight: 5 }} />
+                        <Text style={styles.proUpgradeBtnTextCompact}>Upgrade Now</Text>
+                        <Ionicons name="arrow-forward" size={13} color="#0B0F19" style={{ marginLeft: 5 }} />
+                      </LinearGradient>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.proCompactSyncBtn}
+                      onPress={handleRestorePurchases}
+                      disabled={isRestoring}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Restore Purchases"
+                    >
+                      {isRestoring ? (
+                        <ActivityIndicator size="small" color="#94A3B8" />
+                      ) : (
+                        <Text style={styles.proCompactSyncText}>Restore</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </LinearGradient>
+              )}
+            </View>
+          )}
+
           {/* Planning & Categories */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Planning & Expenses</Text>
@@ -676,6 +877,30 @@ export default function SettingsScreen() {
             </View>
           </View>
 
+          {/* Help & Support */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Help & Support</Text>
+            <View style={styles.infoCard}>
+              <SettingsRow
+                icon="chatbubbles-outline"
+                iconBg="#EEF2FF"
+                iconColor="#4F46E5"
+                label="Contact Support"
+                value="Inquiries, bugs & assistance"
+                onPress={() => setShowSupportModal(true)}
+              />
+              <View style={styles.infoDivider} />
+              <SettingsRow
+                icon="mail-outline"
+                iconBg="#ECFDF5"
+                iconColor="#10B981"
+                label="Email Support"
+                value="support@rupeo.app"
+                onPress={() => Linking.openURL('mailto:support@rupeo.app?subject=Rupeo%20Support%20Request')}
+              />
+            </View>
+          </View>
+
           {/* Legal */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('legal')}</Text>
@@ -723,9 +948,17 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.versionText}>Rupeo {t('version')} 2.0.0</Text>
+          <View style={{ alignItems: 'center', marginTop: 8 }}>
+            <Text style={styles.versionText}>Rupeo {t('version')} 2.0.6</Text>
+          </View>
         </View>
       </ScrollView>
+
+      <HelpSupportModal
+        visible={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+        source="settings"
+      />
 
       <CurrencySelectorModal
         visible={showCurrencyModal}
@@ -966,7 +1199,7 @@ export default function SettingsScreen() {
               <View style={{ paddingBottom: 50 }}>
                 <Text style={styles.legalTextBold}>Rupeo Privacy Policy</Text>
                 <Text style={styles.legalDateText}>Effective Date: September 2026 | Version 2.0</Text>
-                
+
                 <Text style={styles.legalIntroText}>
                   Innovatex Labs ("we", "us", or "our") is committed to protecting your privacy. This Privacy Policy explains how our personal finance application Rupeo ("App", package: com.innovatexlabs.paisewaise) collects, uses, protects, and handles your personal and financial information.{'\n\n'}
                 </Text>
@@ -1029,7 +1262,7 @@ export default function SettingsScreen() {
                 <Text style={styles.legalSectionHeading}>8. Contact Us</Text>
                 <Text style={styles.legalText}>
                   For any privacy questions or data requests, please contact:{'\n'}
-                  <Text style={styles.legalTextSemibold}>Email:</Text> support@innovatexlabs.com{'\n'}
+                  <Text style={styles.legalTextSemibold}>Email:</Text> innovatexlab.services@gmail.com{'\n'}
                   <Text style={styles.legalTextSemibold}>Publisher:</Text> Innovatex Labs
                 </Text>
               </View>
@@ -1090,7 +1323,7 @@ export default function SettingsScreen() {
                 <Text style={styles.legalText}>
                   These Terms shall be governed by and construed in accordance with the laws of India. Any disputes shall be subject to the exclusive jurisdiction of the courts of India.{'\n\n'}
                   For support or inquiries, please contact:{'\n'}
-                  <Text style={styles.legalTextSemibold}>Email:</Text> support@innovatexlabs.com{'\n'}
+                  <Text style={styles.legalTextSemibold}>Email:</Text> innovatexlab.services@gmail.com{'\n'}
                   <Text style={styles.legalTextSemibold}>Publisher:</Text> Innovatex Labs
                 </Text>
               </View>
@@ -1409,8 +1642,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginLeft: 16,
   },
-  infoCard: { 
-    backgroundColor: 'transparent', 
+  infoCard: {
+    backgroundColor: 'transparent',
     gap: 8,
   },
   backupActions: {
@@ -1443,9 +1676,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  infoRow: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 12,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -1469,7 +1702,7 @@ const styles = StyleSheet.create({
   infoValue: { fontSize: 12, color: '#64748B', fontWeight: '500' },
   infoDivider: { display: 'none' },
 
-  prefRow: { 
+  prefRow: {
     padding: 12,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -1480,8 +1713,8 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   prefLabel: { fontSize: 14, fontWeight: '700', color: '#0F172A', marginBottom: 10 },
-  aiPrefRow: { 
-    alignItems: 'flex-start', 
+  aiPrefRow: {
+    alignItems: 'flex-start',
     padding: 12,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -1676,7 +1909,7 @@ const styles = StyleSheet.create({
   legalSectionHeading: { fontSize: 16, fontWeight: '900', color: '#0F172A', marginTop: 16, marginBottom: 8 },
   legalTextSemibold: { fontWeight: '800', color: '#1E293B' },
   legalHighlightText: { fontWeight: '800', color: '#DC2626' },
-  
+
   fullPageHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1816,4 +2049,247 @@ const styles = StyleSheet.create({
   orDividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 14, gap: 10 },
   orDividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
   orDividerText: { fontSize: 11, fontWeight: '900', color: COLORS.mutedSoft, letterSpacing: 0.5 },
+
+  // Luxury Pro Subscription Card Styles (V2)
+  proCardActiveV2: {
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(52, 211, 153, 0.35)',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  // Sleek Compact Pro Subscription Card Styles
+  proCardCompact: {
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.2,
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  proCompactHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  proCompactBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.25)',
+    gap: 4,
+  },
+  proCompactBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#34D399',
+    letterSpacing: 0.6,
+  },
+  proBadgeGoldCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+    gap: 4,
+  },
+  proBadgeGoldTextCompact: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#F59E0B',
+    letterSpacing: 0.6,
+  },
+  proPriceTagCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    gap: 5,
+  },
+  proPriceTextCompact: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#E2E8F0',
+  },
+  proSavePillCompact: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 5,
+  },
+  proSavePillTextCompact: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  proCompactBody: {
+    marginBottom: 8,
+  },
+  proCompactTitle: {
+    fontSize: 16.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+    marginBottom: 2,
+  },
+  proCompactDesc: {
+    fontSize: 11.5,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  proCompactTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  proCompactPlanName: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  proCompactPerksRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12,
+  },
+  proFeaturePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 4,
+  },
+  proFeaturePillText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#CBD5E1',
+  },
+  proCompactPerk: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(52, 211, 153, 0.1)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.2)',
+    gap: 4,
+  },
+  proCompactPerkText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#34D399',
+  },
+  proCompactActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  proUpgradeBtnCompact: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  proUpgradeGradientCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  proUpgradeBtnTextCompact: {
+    fontSize: 12.5,
+    fontWeight: '900',
+    color: '#0B0F19',
+    letterSpacing: 0.2,
+  },
+  proCompactChangeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563EB',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  proCompactBtnText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  proCompactSyncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  proCompactSyncText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  proActiveIndicatorV2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(6, 78, 59, 0.8)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.35)',
+    gap: 4,
+  },
+  proActiveDotV2: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#34D399',
+  },
+  proActiveStatusTextV2: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#34D399',
+  },
 });

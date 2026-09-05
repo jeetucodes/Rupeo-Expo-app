@@ -193,6 +193,8 @@ export default function RootLayout() {
                   <Stack.Screen name="notifications" />
                   <Stack.Screen name="budget" />
                   <Stack.Screen name="categories" />
+                  <Stack.Screen name="premium" />
+                  <Stack.Screen name="reminders" />
                   <Stack.Screen name="transaction/[id]" />
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen 

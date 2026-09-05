@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rupeo",
     "slug": "PaiseWaise",
-    "version": "2.0.0",
+    "version": "2.0.6",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rupeo",
@@ -22,7 +22,8 @@
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "com.android.vending.BILLING"
       ],
       "predictiveBackGestureEnabled": false,
       "package": "com.innovatexlabs.paisewaise",
@@ -35,9 +36,8 @@
     },
     "plugins": [
       "expo-router",
-      "@react-native-google-signin/google-signin",
       [
-        "react-native-google-mobile-ads",
+        "react-native-google-mobile-ads/app.plugin.js",
         {
           "androidAppId": "ca-app-pub-2106211536803561~5812952031",
           "iosAppId": "ca-app-pub-2106211536803561~5812952031"
@@ -56,9 +56,9 @@
         {
           "android": {
             "kotlinVersion": "2.2.20",
-            "enableProguardInReleaseBuilds": false,
-            "enableShrinkResourcesInReleaseBuilds": false,
-            "enableMinifyInReleaseBuilds": false
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableMinifyInReleaseBuilds": true
           },
           "ios": {
             "useFrameworks": "static"

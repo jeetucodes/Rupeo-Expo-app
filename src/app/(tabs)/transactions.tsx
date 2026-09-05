@@ -18,6 +18,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   getAllTransactions,
+  sortTransactionsRecentFirst,
   getUserCategories,
   CategoryItem,
 } from '@/lib/database';
@@ -325,7 +326,7 @@ export default function TransactionsScreen() {
         getAllTransactions(user.uid, forceRefresh),
         getUserCategories(user.uid, forceRefresh),
       ]);
-      setAllTransactions(txs);
+      setAllTransactions(sortTransactionsRecentFirst(txs));
       setCategories(cats);
     } catch (e) {
       console.error('Error loading transactions:', e);
@@ -507,13 +508,14 @@ export default function TransactionsScreen() {
     return { categoryData: cats, totalSpend: total };
   }, [allTransactions, period, startDate, endDate, categories]);
 
-  // Date-grouped transactions
+  // Date-grouped transactions (Sorted recent-first by Date, Time, and Timestamp)
   const groupedTransactions = useMemo(() => {
     const groups: { [dateStr: string]: { dateLabel: string; totalSpend: number; items: any[] } } = {};
     const todayStr = getLocalDateString();
     const yesterdayStr = getRelativeDateString(-1);
 
-    const visibleList = filteredList.slice(0, displayLimit);
+    const sortedList = sortTransactionsRecentFirst(filteredList);
+    const visibleList = sortedList.slice(0, displayLimit);
 
     visibleList.forEach(tx => {
       const dateKey = tx.date || 'Unknown Date';
@@ -535,10 +537,13 @@ export default function TransactionsScreen() {
       }
     });
 
-    return Object.entries(groups).map(([dateKey, group]) => ({
-      dateKey,
-      ...group,
-    }));
+    return Object.entries(groups)
+      .sort(([dateKeyA], [dateKeyB]) => dateKeyB.localeCompare(dateKeyA))
+      .map(([dateKey, group]) => ({
+        dateKey,
+        ...group,
+        items: sortTransactionsRecentFirst(group.items),
+      }));
   }, [filteredList, displayLimit]);
 
   const resetFilters = () => {

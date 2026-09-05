@@ -15,8 +15,10 @@ import {
   RefreshControl,
   StatusBar,
   Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -38,6 +40,7 @@ import CategoryIcon from '@/components/CategoryIcon';
 import PaymentModeIcon from '@/components/PaymentModeIcon';
 import Toast from 'react-native-toast-message';
 import { generateAndShareFinancialReportPDF } from '@/lib/pdfReport';
+import { checkPdfExportLimit, incrementPdfExportCount, getPdfExportCount, FREE_PDF_EXPORT_LIMIT } from '@/lib/limits';
 import { useTranslation } from '@/lib/i18n';
 
 const { width } = Dimensions.get('window');
@@ -105,7 +108,8 @@ function buildSmoothPath(points: { x: number; y: number }[]): string {
 }
 
 export default function ReportsScreen() {
-  const { user, settings, isPremium } = useAuth();
+  const router = useRouter();
+  const { user, settings, isPremium, appConfig } = useAuth();
   const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
   const { width: windowWidth } = useWindowDimensions();
@@ -124,6 +128,20 @@ export default function ReportsScreen() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedCategoryDetail, setSelectedCategoryDetail] = useState<CategorySpend | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [pdfExportCount, setPdfExportCount] = useState<number>(0);
+
+  const refreshPdfCount = useCallback(async () => {
+    if (!isPremium) {
+      const c = await getPdfExportCount(user?.uid);
+      setPdfExportCount(c);
+    }
+  }, [isPremium, user?.uid]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshPdfCount();
+    }, [refreshPdfCount])
+  );
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -565,35 +583,6 @@ export default function ReportsScreen() {
       .slice(0, 5);
   }, [filteredTransactions]);
 
-  // Share Financial Summary
-  const handleShareReport = async () => {
-    try {
-      const periodTitle =
-        period === 'this_month' ? 'This Month' :
-        period === 'last_month' ? 'Last Month' :
-        period === '3_months' ? 'Last 3 Months' :
-        period === 'this_year' ? 'This Year' : 'All Time';
-
-      let text = `📊 *Rupeo Financial Report (${periodTitle})*\n\n`;
-      text += `💰 *Total Income:* ${curr}${metrics.income.toLocaleString('en-IN')}\n`;
-      text += `💸 *Total Expense:* ${curr}${metrics.expense.toLocaleString('en-IN')}\n`;
-      text += `📈 *Net Savings:* ${curr}${metrics.net.toLocaleString('en-IN')} (${metrics.savingsRate}% Savings Rate)\n`;
-      text += `⚡ *Daily Avg Spend:* ${curr}${metrics.dailyAvg.toLocaleString('en-IN')}/day\n\n`;
-
-      if (categoryBreakdown.length > 0) {
-        text += `🏷️ *Top Spending Categories:*\n`;
-        categoryBreakdown.slice(0, 4).forEach(c => {
-          text += `• ${c.name}: ${curr}${c.amount.toLocaleString('en-IN')} (${c.percentage}%)\n`;
-        });
-      }
-
-      text += `\n📊 *Rupeo Financial Ledger & Statement*\nhttps://rupeo.app`;
-
-      await Share.share({ message: text });
-    } catch (e) {
-      Toast.show({ type: 'error', text1: 'Could not share report' });
-    }
-  };
 
   // Month-over-Month Velocity & Comparison
   const prevPeriodMetrics = useMemo(() => {
@@ -735,6 +724,142 @@ export default function ReportsScreen() {
     };
   }, [filteredTransactions]);
 
+  // Share Executive Summary (WhatsApp, Telegram, Message, Email etc.)
+  const handleShareReport = async () => {
+    try {
+      if (filteredTransactions.length === 0) {
+        Toast.show({
+          type: 'info',
+          text1: 'No Data',
+          text2: 'No transactions found to generate an executive summary.',
+        });
+        return;
+      }
+
+      const periodTitle =
+        period === 'this_month' ? 'This Month' :
+        period === 'last_month' ? 'Last Month' :
+        period === '3_months' ? 'Last 3 Months' :
+        period === 'this_year' ? 'This Year' : 'All Time';
+
+      const userName = user?.displayName || 'Rupeo Member';
+      const formattedDate = new Date().toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+
+      // Health rating emoji
+      const healthEmoji =
+        financialHealth.score >= 85 ? '🟢' :
+        financialHealth.score >= 70 ? '🔵' :
+        financialHealth.score >= 50 ? '🟡' : '🔴';
+
+      const netSign = metrics.net >= 0 ? '+' : '';
+
+      // Compute top expense categories specifically
+      const expenseTx = filteredTransactions.filter(t => t.type === 'expense');
+      const totalExp = expenseTx.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+      const catMap: { [cat: string]: number } = {};
+      expenseTx.forEach(t => {
+        const cat = t.category || 'Others';
+        catMap[cat] = (catMap[cat] || 0) + Math.abs(t.amount);
+      });
+      const topCatList = Object.entries(catMap)
+        .map(([name, amount]) => ({
+          name,
+          amount,
+          percentage: totalExp > 0 ? Math.round((amount / totalExp) * 100) : 0,
+        }))
+        .sort((a, b) => b.amount - a.amount);
+
+      let text = `━━━━━━━━━━━━━━━━━━━━━━\n`;
+      text += `📊 *RUPEO EXECUTIVE FINANCIAL SUMMARY*\n`;
+      text += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+      text += `👤 *Account:* ${userName}\n`;
+      text += `🗓️ *Period:* ${periodTitle}\n`;
+      text += `📅 *Generated On:* ${formattedDate}\n\n`;
+
+      text += `💎 *FINANCIAL HEALTH*\n`;
+      text += `• Score: ${healthEmoji} ${financialHealth.score}/100 (${financialHealth.rating})\n`;
+      text += `• Savings Rate: ${metrics.savingsRate}%\n\n`;
+
+      text += `💰 *CASH FLOW OVERVIEW*\n`;
+      text += `• Total Income: ${curr}${metrics.income.toLocaleString('en-IN')}\n`;
+      text += `• Total Expenses: ${curr}${metrics.expense.toLocaleString('en-IN')}\n`;
+      text += `• Net Savings: ${netSign}${curr}${metrics.net.toLocaleString('en-IN')}\n`;
+      text += `• Daily Avg Spend: ${curr}${metrics.dailyAvg.toLocaleString('en-IN')}/day\n`;
+      text += `• Total Transactions: ${filteredTransactions.length}\n\n`;
+
+      // 50/30/20 Budget Breakdown
+      if (rule503020.needsAmt > 0 || rule503020.wantsAmt > 0) {
+        text += `⚖️ *50/30/20 BUDGET DISCIPLINE*\n`;
+        text += `• Needs (Essentials): ${curr}${rule503020.needsAmt.toLocaleString('en-IN')} (${rule503020.needsPct}%)\n`;
+        text += `• Wants (Lifestyle): ${curr}${rule503020.wantsAmt.toLocaleString('en-IN')} (${rule503020.wantsPct}%)\n`;
+        text += `• Savings / Surplus: ${curr}${rule503020.savingsAmt.toLocaleString('en-IN')} (${rule503020.savingsPct}%)\n\n`;
+      }
+
+      // Velocity & Comparison
+      if (prevPeriodMetrics.hasPrevData) {
+        text += `⚡ *SPENDING VELOCITY*\n`;
+        text += `• Prior Period Spend: ${curr}${prevPeriodMetrics.prevExpense.toLocaleString('en-IN')}\n`;
+        text += `• Trajectory: ${prevPeriodMetrics.diffPct}% ${prevPeriodMetrics.isHigher ? 'higher 🔺' : 'lower 🔻'} than prior period\n`;
+        if (period === 'this_month') {
+          text += `• Projected Month-End: ${curr}${prevPeriodMetrics.projectedSpend.toLocaleString('en-IN')}\n`;
+        }
+        text += `\n`;
+      }
+
+      // Top Spending Categories
+      if (topCatList.length > 0) {
+        text += `🏷️ *TOP SPENDING CATEGORIES*\n`;
+        topCatList.slice(0, 5).forEach((c, idx) => {
+          text += `${idx + 1}. ${c.name}: ${curr}${c.amount.toLocaleString('en-IN')} (${c.percentage}%)\n`;
+        });
+        text += `\n`;
+      }
+
+      // Habits & Patterns
+      const habits: string[] = [];
+      if (weekendVsWeekday.weekdayTotal > 0 || weekendVsWeekday.weekendTotal > 0) {
+        habits.push(`• Weekday vs Weekend: ${weekendVsWeekday.weekdayPct}% vs ${weekendVsWeekday.weekendPct}%`);
+      }
+      if (paymentModesSplit.length > 0) {
+        const topMode = paymentModesSplit[0];
+        habits.push(`• Primary Payment Mode: ${topMode.mode} (${topMode.percentage}% of spends)`);
+      }
+      if (topExpenses.length > 0) {
+        const topExp = topExpenses[0];
+        const title = topExp.title || topExp.category || 'Expense';
+        habits.push(`• Largest Single Expense: ${title} (${curr}${Math.abs(topExp.amount).toLocaleString('en-IN')})`);
+      }
+
+      if (habits.length > 0) {
+        text += `📌 *KEY HABITS & BEHAVIOR*\n`;
+        text += habits.join('\n') + `\n\n`;
+      }
+
+      // Smart Advice / Recommendation
+      if (financialHealth.insights.length > 0) {
+        text += `💡 *SMART RECOMMENDATION*\n`;
+        text += `• ${financialHealth.insights[0]}\n\n`;
+      }
+
+      text += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+      text += `🚀 *Rupeo — Smart Wealth & Expense Tracker*\n`;
+      text += `📲 *Download App:* https://rupeoo.vercel.app/download\n`;
+      text += `━━━━━━━━━━━━━━━━━━━━━━`;
+
+      await Share.share({
+        title: `Rupeo Financial Report - ${periodTitle}`,
+        message: text,
+      });
+    } catch (e) {
+      console.error('Share Report Error:', e);
+      Toast.show({ type: 'error', text1: 'Could not share report' });
+    }
+  };
+
   // CSV Export
   const handleExportCSV = async () => {
     try {
@@ -807,6 +932,27 @@ export default function ReportsScreen() {
         return;
       }
 
+      // Check Free Tier PDF Limit (Max 3 for Free users, Unlimited for Pro or when Pro is turned off by Admin)
+      const isProOff = appConfig?.showSubscriptions === false || appConfig?.showProFeatures === false;
+      const { allowed } = await checkPdfExportLimit(isPremium, user?.uid, isProOff);
+      if (!allowed) {
+        setShowExportModal(false);
+        const canUpgrade = appConfig?.showSubscriptions !== false && appConfig?.showProFeatures !== false;
+        Alert.alert(
+          canUpgrade ? 'Rupeo Pro Feature 👑' : 'Export Limit Reached ⚠️',
+          canUpgrade
+            ? `Free version mein maximum ${FREE_PDF_EXPORT_LIMIT} PDF statements export/share karne ki limit hai jo aap poori kar chuke hain.\n\nUnlimited official multi-page reports aur statement share karne ke liye Rupeo Pro upgrade karein.`
+            : `Free version mein maximum ${FREE_PDF_EXPORT_LIMIT} PDF statements export karne ki limit poori ho chuki hai.`,
+          canUpgrade
+            ? [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Upgrade to Pro 🚀', onPress: () => router.push('/premium') },
+              ]
+            : [{ text: 'OK', style: 'default' }]
+        );
+        return;
+      }
+
       setIsGeneratingPDF(true);
       setShowExportModal(false);
 
@@ -859,7 +1005,20 @@ export default function ReportsScreen() {
         monthlyTrends,
       });
 
-      Toast.show({ type: 'success', text1: 'PDF Exported', text2: 'Multi-page financial statement ready' });
+      if (!isPremium) {
+        const newCount = await incrementPdfExportCount(user?.uid);
+        setPdfExportCount(newCount);
+        const remaining = Math.max(0, FREE_PDF_EXPORT_LIMIT - newCount);
+        Toast.show({
+          type: 'success',
+          text1: 'PDF Statement Exported 🎉',
+          text2: remaining > 0
+            ? `${remaining} free export${remaining > 1 ? 's' : ''} left`
+            : 'Last free export used. Upgrade to Pro for unlimited statements.',
+        });
+      } else {
+        Toast.show({ type: 'success', text1: 'PDF Exported', text2: 'Multi-page financial statement ready' });
+      }
     } catch (e: any) {
       console.error('PDF Export Error:', e);
       Toast.show({ type: 'error', text1: 'PDF Error', text2: e?.message || 'Could not generate PDF' });
@@ -2260,7 +2419,16 @@ export default function ReportsScreen() {
                 )}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.exportOptionTitle}>Multi-Page PDF Statement</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.exportOptionTitle}>Multi-Page PDF Statement</Text>
+                  {!isPremium && appConfig?.showSubscriptions !== false && (
+                    <View style={[styles.pdfLimitPill, pdfExportCount >= FREE_PDF_EXPORT_LIMIT && styles.pdfLimitPillMax]}>
+                      <Text style={[styles.pdfLimitPillText, pdfExportCount >= FREE_PDF_EXPORT_LIMIT && styles.pdfLimitPillTextMax]}>
+                        {pdfExportCount >= FREE_PDF_EXPORT_LIMIT ? 'Pro Only (3/3 Used)' : `${pdfExportCount}/${FREE_PDF_EXPORT_LIMIT} Free`}
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.exportOptionSub}>Official 3-page HD statement with KPIs, charts & ledger</Text>
               </View>
               <Ionicons name="download-outline" size={18} color="#64748B" />
@@ -3867,5 +4035,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#64748B',
+  },
+  pdfLimitPill: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  pdfLimitPillMax: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  pdfLimitPillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  pdfLimitPillTextMax: {
+    color: '#DC2626',
   },
 });

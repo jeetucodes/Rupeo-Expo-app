@@ -26,6 +26,9 @@ export const ADMOB_CONFIG = {
 
 let interstitial: any = null;
 let isInterstitialLoaded = false;
+let onInterstitialClosedCallback: (() => void) | null = null;
+
+const TEST_INTERSTITIAL_ID = TestIds?.INTERSTITIAL || 'ca-app-pub-3940256099942544/1033173712';
 
 /**
  * Initialize Google Mobile Ads SDK (Native)
@@ -43,10 +46,10 @@ export async function initializeAds() {
 /**
  * Preload the Transaction Save Interstitial Ad
  */
-export function preloadTransactionSaveAd(useTest: boolean = __DEV__) {
+export function preloadTransactionSaveAd(forceTest: boolean = false) {
   if (!InterstitialAd || !AdEventType) return;
 
-  const adUnitId = useTest ? TestIds?.INTERSTITIAL : ADMOB_CONFIG.transactionSaveId;
+  const adUnitId = (forceTest || __DEV__) ? TEST_INTERSTITIAL_ID : ADMOB_CONFIG.transactionSaveId;
 
   try {
     interstitial = InterstitialAd.createForAdRequest(adUnitId, {
@@ -54,18 +57,27 @@ export function preloadTransactionSaveAd(useTest: boolean = __DEV__) {
     });
 
     interstitial.addAdEventListener(AdEventType.LOADED, () => {
+      console.log('✅ AdMob Interstitial loaded successfully with ID:', adUnitId);
       isInterstitialLoaded = true;
     });
 
     interstitial.addAdEventListener(AdEventType.CLOSED, () => {
+      console.log('AdMob Interstitial closed by user');
       isInterstitialLoaded = false;
-      preloadTransactionSaveAd(useTest);
+      const cb = onInterstitialClosedCallback;
+      onInterstitialClosedCallback = null;
+      if (cb) {
+        cb();
+      }
+      // Preload next interstitial ad
+      preloadTransactionSaveAd(forceTest);
     });
 
     interstitial.addAdEventListener(AdEventType.ERROR, (error: any) => {
       console.warn('AdMob Interstitial failed to load with unitId:', adUnitId, error);
       isInterstitialLoaded = false;
-      if (!useTest && TestIds?.INTERSTITIAL) {
+      if (!forceTest) {
+        // Fallback to Google's official test interstitial ID
         preloadTransactionSaveAd(true);
       }
     });
@@ -79,86 +91,84 @@ export function preloadTransactionSaveAd(useTest: boolean = __DEV__) {
 /**
  * Show Transaction Save Ad (Interstitial) after a transaction is successfully saved
  * Skips entirely if user is a Premium subscriber!
+ * Calls onDismiss() when ad is closed or if ad fails/not ready.
  */
-export async function showTransactionSaveAd(isUserPremium: boolean = false): Promise<void> {
+export async function showTransactionSaveAd(
+  isUserPremium: boolean = false,
+  onDismiss?: () => void
+): Promise<void> {
   if (isUserPremium) {
+    if (onDismiss) onDismiss();
     return;
   }
 
   try {
     if (interstitial && isInterstitialLoaded) {
+      onInterstitialClosedCallback = onDismiss || null;
       await interstitial.show();
     } else {
+      console.log('Interstitial ad not ready yet, proceeding with navigation');
       preloadTransactionSaveAd();
+      if (onDismiss) onDismiss();
     }
   } catch (e) {
     console.warn('Error showing Transaction Save Ad:', e);
+    onInterstitialClosedCallback = null;
+    if (onDismiss) onDismiss();
+    preloadTransactionSaveAd();
   }
 }
 
 /**
  * Native Home Banner Ad Component
- * Hides completely when user is Premium!
+ * Hides completely when user is Premium or if ad fails to load!
+ * Takes ZERO space (height: 0) while loading and vanishes on error.
  */
 export function HomeBannerAd({ style }: { style?: any }) {
   const { isPremium, appConfig } = useAuth();
+  const [isLoaded, setIsLoaded] = useState(false);
   const [adError, setAdError] = useState(false);
   const [useTestAd, setUseTestAd] = useState(__DEV__);
 
-  // In production (!__DEV__), Premium users get 100% Zero Ads.
-  // In development (__DEV__), allow displaying the ad so the developer can test and verify it!
-  if (!__DEV__ && (isPremium || appConfig?.showAds === false)) return null;
+  const TEST_BANNER_ID = TestIds?.BANNER || 'ca-app-pub-3940256099942544/6300978111';
 
-  // 1. If compiled Android APK with native AdMob SDK:
-  if (BannerAd && BannerAdSize) {
-    if (adError) return null;
-
-    const adUnitId = (useTestAd && TestIds?.BANNER) ? TestIds.BANNER : ADMOB_CONFIG.homeBannerId;
-
-    return (
-      <View style={[styles.bannerContainer, style]}>
-        <BannerAd
-          key={adUnitId}
-          unitId={adUnitId}
-          size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-          requestOptions={{
-            requestNonPersonalizedAdsOnly: false,
-          }}
-          onAdLoaded={() => {
-            setAdError(false);
-          }}
-          onAdFailedToLoad={(error: any) => {
-            console.warn('AdMob Home Banner failed to load with unitId:', adUnitId, error);
-            if (!useTestAd && TestIds?.BANNER) {
-              setUseTestAd(true);
-            } else {
-              setAdError(true);
-            }
-          }}
-        />
-      </View>
-    );
+  // If user is Premium, ads disabled by config, or native AdMob binary missing (e.g. Expo Go)
+  if (isPremium || appConfig?.showAds === false || !BannerAd || !BannerAdSize) {
+    return null;
   }
 
-  // 2. If running inside Expo Go (Development test banner representation):
+  // If ad failed to load completely (e.g. offline, no fill), hide area completely
+  if (adError) {
+    return null;
+  }
+
+  const adUnitId = useTestAd ? TEST_BANNER_ID : ADMOB_CONFIG.homeBannerId;
+
   return (
-    <View style={[styles.previewBannerContainer, style]}>
-      <View style={styles.previewHeaderRow}>
-        <View style={styles.adBadge}>
-          <Text style={styles.adBadgeText}>Ad</Text>
-        </View>
-        <Text style={styles.previewSponsorText}>Google AdMob • Test Banner</Text>
-        <Ionicons name="information-circle-outline" size={14} color="#94A3B8" style={{ marginLeft: 'auto' }} />
-      </View>
-      <View style={styles.previewContentRow}>
-        <View style={styles.previewIconCircle}>
-          <Ionicons name="megaphone-outline" size={18} color="#2563EB" />
-        </View>
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={styles.previewTitle} numberOfLines={1}>AdMob Banner Placement</Text>
-          <Text style={styles.previewSubtitle} numberOfLines={1}>Real ads will serve automatically in compiled APK</Text>
-        </View>
-      </View>
+    <View style={[styles.bannerContainer, style, !isLoaded && styles.hiddenBanner]}>
+      <BannerAd
+        key={adUnitId}
+        unitId={adUnitId}
+        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+        requestOptions={{
+          requestNonPersonalizedAdsOnly: false,
+        }}
+        onAdLoaded={() => {
+          setIsLoaded(true);
+          setAdError(false);
+        }}
+        onAdFailedToLoad={(error: any) => {
+          console.warn('AdMob Home Banner failed to load with unitId:', adUnitId, error);
+          if (!useTestAd) {
+            // Try fallback to Google's test ad ID
+            setUseTestAd(true);
+          } else {
+            // Both live and test failed -> hide area completely (0 pixels)
+            setAdError(true);
+            setIsLoaded(false);
+          }
+        }}
+      />
     </View>
   );
 }
@@ -170,6 +180,13 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     overflow: 'hidden',
     borderRadius: 12,
+  },
+  hiddenBanner: {
+    height: 0,
+    marginVertical: 0,
+    paddingVertical: 0,
+    opacity: 0,
+    overflow: 'hidden',
   },
   previewBannerContainer: {
     marginHorizontal: 20,

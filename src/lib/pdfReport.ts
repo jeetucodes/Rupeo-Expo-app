@@ -768,7 +768,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
     <div class="page-footer">
       <span>Rupeo Financial Reports • Page 1 of 3</span>
-      <span>Automated Wealth Intelligence • https://rupeo.app</span>
+      <span>Automated Wealth Intelligence • https://rupeoo.vercel.app/download</span>
     </div>
   </div>
 
@@ -866,7 +866,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
     <div class="page-footer">
       <span>Rupeo Financial Reports • Page 2 of 3</span>
-      <span>Automated Wealth Intelligence • https://rupeo.app</span>
+      <span>Automated Wealth Intelligence • https://rupeoo.vercel.app/download</span>
     </div>
   </div>
 

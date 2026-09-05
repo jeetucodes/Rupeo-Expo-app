@@ -15,6 +15,8 @@ import {
   addDoc,
   Timestamp,
   onSnapshot,
+  arrayUnion,
+  increment,
 } from 'firebase/firestore';
 import { formatTime12Hour, getLocalDateString, getLocalMonthString } from './dateUtils';
 
@@ -168,7 +170,7 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
   invalidateTransactionsCache(userId);
 
   if ((tx.type || 'debit').toLowerCase() === 'debit') {
-    checkAndTriggerBudgetAlert(userId).catch(() => {});
+    checkAndTriggerBudgetAlert(userId).catch(() => { });
   }
 
   return docRef.id;
@@ -277,6 +279,65 @@ export async function insertTransactionsBatch(
   return { imported, skipped };
 }
 
+export function parseTimeToMinutes(timeStr?: string | null): number | null {
+  if (!timeStr || typeof timeStr !== 'string') return null;
+  const trimmed = timeStr.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?:\s*([AaPp][Mm]))?/);
+  if (!match) return null;
+  let h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  const meridiem = match[3]?.toUpperCase();
+  if (meridiem === 'PM' && h < 12) h += 12;
+  if (meridiem === 'AM' && h === 12) h = 0;
+  return h * 60 + m;
+}
+
+export function getCreatedAtMillis(createdAt: any): number {
+  if (!createdAt) return 0;
+  if (typeof createdAt.toMillis === 'function') return createdAt.toMillis();
+  if (typeof createdAt.toDate === 'function') return createdAt.toDate().getTime();
+  if (typeof createdAt.seconds === 'number') {
+    return createdAt.seconds * 1000 + (createdAt.nanoseconds || 0) / 1000000;
+  }
+  if (typeof createdAt === 'number') return createdAt;
+  if (typeof createdAt === 'string') {
+    const parsed = Date.parse(createdAt);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+export function sortTransactionsRecentFirst<T extends Record<string, any>>(list: T[]): T[] {
+  if (!Array.isArray(list)) return [];
+  return [...list].sort((a: any, b: any) => {
+    // 1. Primary: Compare date string (YYYY-MM-DD) descending (Newer date first)
+    const dateA = a.date || '';
+    const dateB = b.date || '';
+    if (dateA !== dateB) {
+      return dateB.localeCompare(dateA);
+    }
+
+    // 2. Secondary: If same date, compare time (e.g. "08:30 PM", "14:30") descending
+    const timeA = parseTimeToMinutes(a.time);
+    const timeB = parseTimeToMinutes(b.time);
+    if (timeA !== null && timeB !== null && timeA !== timeB) {
+      return timeB - timeA;
+    }
+    if (timeA !== null && timeB === null) return -1;
+    if (timeA === null && timeB !== null) return 1;
+
+    // 3. Tertiary: Compare created_at timestamp descending (Latest created first)
+    const createdA = getCreatedAtMillis(a.created_at);
+    const createdB = getCreatedAtMillis(b.created_at);
+    if (createdA !== 0 && createdB !== 0 && createdA !== createdB) {
+      return createdB - createdA;
+    }
+
+    // 4. Stable fallback
+    return (b.id || '').localeCompare(a.id || '');
+  });
+}
+
 export async function getAllTransactions(userId: string, forceRefresh = false): Promise<any[]> {
   if (!userId) return [];
 
@@ -289,14 +350,15 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
   try {
     const q = query(collection(db, `users/${userId}/transactions`), orderBy('date', 'desc'));
     const snapshot = await getDocs(q);
-    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const rawData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const data = sortTransactionsRecentFirst(rawData);
     memoryCache.transactions.set(userId, { data, timestamp: now });
     return data;
   } catch (err) {
     console.warn('Fallback getting transactions without order:', err);
     const snapshot = await getDocs(collection(db, `users/${userId}/transactions`));
     const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const data = list.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+    const data = sortTransactionsRecentFirst(list);
     memoryCache.transactions.set(userId, { data, timestamp: now });
     return data;
   }
@@ -663,7 +725,7 @@ export async function checkBillReminders(userId: string) {
           let notifPeriod = 'evening';
           if (notifHour >= 5 && notifHour < 12) notifPeriod = 'morning';
           else if (notifHour >= 12 && notifHour < 17) notifPeriod = 'afternoon';
-          
+
           return (
             notifDate.getFullYear() === now.getFullYear() &&
             notifDate.getMonth() === now.getMonth() &&
@@ -816,7 +878,7 @@ export function subscribeToUserNotifications(
   onChange: (notifications: AppNotification[]) => void,
   onError: (error: Error) => void
 ) {
-  if (!userId) return () => {};
+  if (!userId) return () => { };
 
   let history: AppNotification[] = [];
   let admin: AppNotification[] = [];
@@ -1081,7 +1143,7 @@ export async function getUserSettings(userId: string): Promise<UserSettings | nu
           isPremium: userData.is_premium || userData.settings.isPremium || false,
           premiumPlan: userData.premium_plan || userData.settings.premiumPlan,
         };
-        setDoc(docRef, legacySettings, { merge: true }).catch(() => {});
+        setDoc(docRef, legacySettings, { merge: true }).catch(() => { });
         return legacySettings;
       }
     }
@@ -1191,7 +1253,7 @@ export async function recordPremiumPayment(
 
   // 3. Increment coupon usage if used
   if (paymentData.couponCode) {
-    redeemCoupon(paymentData.couponCode, userId).catch(() => {});
+    redeemCoupon(paymentData.couponCode, userId).catch(() => { });
   }
 
   // 4. Activate premium status for user
@@ -1205,17 +1267,105 @@ export async function recordPremiumPayment(
 export interface CouponItem {
   id?: string;
   code: string;
+  type?: 'flat' | 'percent' | 'free';
   discountPercent?: number; // e.g. 50 for 50%
-  discountAmount?: number; // e.g. 100 for ₹100
-  isFree?: boolean; // 100% free upgrade
+  discountAmount?: number; // e.g. 100 for ₹100 flat off
+  isFree?: boolean; // 100% free upgrade to Pro
+  plan?: 'all' | 'yearly' | 'quarterly' | 'monthly' | 'lifetime' | string;
   maxUses?: number;
   usedCount: number;
   isActive: boolean;
   createdAt?: string;
   expiresAt?: string;
+  redeemedUsers?: string[]; // Array of user IDs who have redeemed this code
 }
 
-export async function validateCoupon(code: string, currentAmount: number): Promise<{
+/**
+ * Normalizes raw Firestore coupon document into a typed CouponItem.
+ * Robustly parses flat amount, percentage, free flag, and applicable plan.
+ */
+export function parseCouponDoc(id: string, d: any, fallbackCode: string): CouponItem {
+  const code = String(d.code || d.coupon_code || fallbackCode).trim().toUpperCase();
+  const type = d.couponType || d.type;
+
+  // 1. Extract flat discount amount (₹)
+  let discountAmount: number | undefined = undefined;
+  if (d.discountAmount !== undefined && !isNaN(Number(d.discountAmount)) && Number(d.discountAmount) > 0) {
+    discountAmount = Number(d.discountAmount);
+  } else if (d.discount_amount !== undefined && !isNaN(Number(d.discount_amount)) && Number(d.discount_amount) > 0) {
+    discountAmount = Number(d.discount_amount);
+  } else if (d.flatDiscount !== undefined && !isNaN(Number(d.flatDiscount)) && Number(d.flatDiscount) > 0) {
+    discountAmount = Number(d.flatDiscount);
+  } else if (d.flat_discount !== undefined && !isNaN(Number(d.flat_discount)) && Number(d.flat_discount) > 0) {
+    discountAmount = Number(d.flat_discount);
+  } else if (d.flat !== undefined && !isNaN(Number(d.flat)) && Number(d.flat) > 0) {
+    discountAmount = Number(d.flat);
+  } else if (type === 'flat' && d.amount !== undefined && !isNaN(Number(d.amount)) && Number(d.amount) > 0) {
+    discountAmount = Number(d.amount);
+  } else if (type === 'flat' && d.discount !== undefined && !isNaN(Number(d.discount)) && Number(d.discount) > 0) {
+    discountAmount = Number(d.discount);
+  }
+
+  // 2. Extract percentage discount (%)
+  let discountPercent: number | undefined = undefined;
+  if (!discountAmount) {
+    if (d.discountPercent !== undefined && !isNaN(Number(d.discountPercent)) && Number(d.discountPercent) > 0) {
+      discountPercent = Number(d.discountPercent);
+    } else if (d.discount_percent !== undefined && !isNaN(Number(d.discount_percent)) && Number(d.discount_percent) > 0) {
+      discountPercent = Number(d.discount_percent);
+    } else if (d.discountPercentage !== undefined && !isNaN(Number(d.discountPercentage)) && Number(d.discountPercentage) > 0) {
+      discountPercent = Number(d.discountPercentage);
+    } else if (d.percentage !== undefined && !isNaN(Number(d.percentage)) && Number(d.percentage) > 0) {
+      discountPercent = Number(d.percentage);
+    } else if (type === 'percent' && d.discount !== undefined && !isNaN(Number(d.discount)) && Number(d.discount) > 0) {
+      discountPercent = Number(d.discount);
+    }
+  }
+
+  // 3. Fallback if only d.discount exists
+  if (!discountAmount && !discountPercent && d.discount !== undefined && !isNaN(Number(d.discount))) {
+    const rawDisc = Number(d.discount);
+    if (rawDisc > 0) {
+      if (type === 'flat' || rawDisc > 100) {
+        discountAmount = rawDisc;
+      } else {
+        discountPercent = rawDisc;
+      }
+    }
+  }
+
+  // 4. Determine isFree
+  // Strictly false if discountAmount exists, or if a partial discountPercent (< 100) exists
+  const isFree = !discountAmount && (
+    d.isFree === true ||
+    type === 'free' ||
+    discountPercent === 100 ||
+    (!discountPercent && !discountAmount)
+  );
+
+  return {
+    id,
+    code,
+    type: isFree ? 'free' : discountAmount ? 'flat' : 'percent',
+    discountAmount: isFree ? undefined : discountAmount,
+    discountPercent: isFree ? (discountPercent === 100 ? 100 : undefined) : discountPercent,
+    isFree: Boolean(isFree),
+    plan: d.plan || 'all',
+    maxUses: d.maxUses || d.max_uses ? Number(d.maxUses || d.max_uses) : undefined,
+    usedCount: Number(d.usedCount || d.used_count || 0),
+    isActive: d.isActive !== false && d.is_active !== false && d.active !== false && d.status !== 'inactive',
+    createdAt: d.createdAt || d.created_at,
+    expiresAt: d.expiresAt || d.expires_at,
+    redeemedUsers: Array.isArray(d.redeemedUsers) ? d.redeemedUsers : [],
+  };
+}
+
+export async function validateCoupon(
+  code: string,
+  currentAmount: number = 0,
+  userId?: string,
+  planId?: string
+): Promise<{
   valid: boolean;
   discount: number;
   finalAmount: number;
@@ -1237,25 +1387,7 @@ export async function validateCoupon(code: string, currentAmount: number): Promi
     const snap1 = await getDocs(q1);
 
     if (!snap1.empty) {
-      const docItem = snap1.docs[0];
-      const d = docItem.data();
-      const isActive = d.isActive !== false && d.is_active !== false && d.active !== false && d.status !== 'inactive';
-      
-      if (!isActive) {
-        return { valid: false, discount: 0, finalAmount: currentAmount, error: 'This coupon is currently inactive' };
-      }
-
-      matchedCoupon = {
-        id: docItem.id,
-        code: cleanCode,
-        discountPercent: d.discountPercent || d.discount_percent || d.discountPercentage || d.percentage || (d.discount && d.discount <= 100 ? d.discount : undefined),
-        discountAmount: d.discountAmount || d.discount_amount || d.flatDiscount || (d.discount && d.discount > 100 ? d.discount : undefined),
-        isFree: Boolean(d.isFree || d.is_free || d.free),
-        maxUses: d.maxUses || d.max_uses,
-        usedCount: d.usedCount || d.used_count || 0,
-        isActive: true,
-        expiresAt: d.expiresAt || d.expires_at,
-      };
+      matchedCoupon = parseCouponDoc(snap1.docs[0].id, snap1.docs[0].data(), cleanCode);
     }
 
     // 2. Case-insensitive fallback lookup across Firestore coupons
@@ -1265,22 +1397,7 @@ export async function validateCoupon(code: string, currentAmount: number): Promi
         const d = docItem.data();
         const docCode = String(d.code || d.coupon_code || docItem.id).trim().toUpperCase();
         if (docCode === cleanCode) {
-          const isActive = d.isActive !== false && d.is_active !== false && d.active !== false && d.status !== 'inactive';
-          if (!isActive) {
-            return { valid: false, discount: 0, finalAmount: currentAmount, error: 'This coupon is currently inactive' };
-          }
-
-          matchedCoupon = {
-            id: docItem.id,
-            code: cleanCode,
-            discountPercent: d.discountPercent || d.discount_percent || d.discountPercentage || d.percentage || (d.discount && d.discount <= 100 ? d.discount : undefined),
-            discountAmount: d.discountAmount || d.discount_amount || d.flatDiscount || (d.discount && d.discount > 100 ? d.discount : undefined),
-            isFree: Boolean(d.isFree || d.is_free || d.free),
-            maxUses: d.maxUses || d.max_uses,
-            usedCount: d.usedCount || d.used_count || 0,
-            isActive: true,
-            expiresAt: d.expiresAt || d.expires_at,
-          };
+          matchedCoupon = parseCouponDoc(docItem.id, d, cleanCode);
           break;
         }
       }
@@ -1300,29 +1417,56 @@ export async function validateCoupon(code: string, currentAmount: number): Promi
     };
   }
 
+  // Check Active Status
+  if (!matchedCoupon.isActive) {
+    return { valid: false, discount: 0, finalAmount: currentAmount, error: 'This coupon is currently inactive.' };
+  }
+
+  // Check Plan match (if coupon is restricted to a specific plan)
+  if (matchedCoupon.plan && matchedCoupon.plan !== 'all' && planId) {
+    const couponPlan = matchedCoupon.plan.toLowerCase();
+    const currentPlan = planId.toLowerCase();
+    if (couponPlan !== currentPlan && !(couponPlan === 'yearly' && currentPlan === 'annual')) {
+      return {
+        valid: false,
+        discount: 0,
+        finalAmount: currentAmount,
+        error: `Yeh coupon sirf "${matchedCoupon.plan.toUpperCase()}" plan ke liye valid hai.`,
+      };
+    }
+  }
+
+  // Check if this specific user has already used this coupon
+  if (userId && matchedCoupon.redeemedUsers && matchedCoupon.redeemedUsers.includes(userId)) {
+    return {
+      valid: false,
+      discount: 0,
+      finalAmount: currentAmount,
+      error: 'Aap is coupon ko pehle hi redeem kar chuke hain.',
+    };
+  }
+
   // Check Expiration Date if set
   if (matchedCoupon.expiresAt) {
     const expiryTime = new Date(matchedCoupon.expiresAt).getTime();
     if (!isNaN(expiryTime) && Date.now() > expiryTime) {
-      return { valid: false, discount: 0, finalAmount: currentAmount, error: 'This coupon has expired' };
+      return { valid: false, discount: 0, finalAmount: currentAmount, error: 'Yeh coupon expire ho chuka hai.' };
     }
   }
 
   // Check Max Uses
   if (matchedCoupon.maxUses && matchedCoupon.usedCount >= matchedCoupon.maxUses) {
-    return { valid: false, discount: 0, finalAmount: currentAmount, error: 'This coupon has reached its maximum usage limit' };
+    return { valid: false, discount: 0, finalAmount: currentAmount, error: 'Yeh coupon apni maximum usage limit tak pahunch gaya hai.' };
   }
 
   // Calculate discount amount
   let discount = 0;
   if (matchedCoupon.isFree) {
     discount = currentAmount;
-  } else if (matchedCoupon.discountPercent) {
-    discount = Math.round((currentAmount * matchedCoupon.discountPercent) / 100);
-  } else if (matchedCoupon.discountAmount) {
+  } else if (matchedCoupon.discountAmount && matchedCoupon.discountAmount > 0) {
     discount = Math.min(matchedCoupon.discountAmount, currentAmount);
-  } else {
-    discount = 0;
+  } else if (matchedCoupon.discountPercent && matchedCoupon.discountPercent > 0) {
+    discount = Math.round((currentAmount * matchedCoupon.discountPercent) / 100);
   }
 
   const finalAmount = Math.max(0, currentAmount - discount);
@@ -1336,6 +1480,7 @@ export async function validateCoupon(code: string, currentAmount: number): Promi
 }
 
 export async function redeemCoupon(code: string, userId: string) {
+  if (!code || !db) return;
   const cleanCode = code.trim().toUpperCase();
   try {
     const couponsRef = collection(db, 'coupons');
@@ -1343,10 +1488,10 @@ export async function redeemCoupon(code: string, userId: string) {
     const snap = await getDocs(q);
     if (!snap.empty) {
       const docSnap = snap.docs[0];
-      const data = docSnap.data();
       await updateDoc(doc(db, 'coupons', docSnap.id), {
-        usedCount: (data.usedCount || 0) + 1,
-        used_count: (data.used_count || 0) + 1,
+        usedCount: increment(1),
+        used_count: increment(1),
+        ...(userId ? { redeemedUsers: arrayUnion(userId) } : {}),
       });
     }
   } catch (err) {
@@ -1357,28 +1502,76 @@ export async function redeemCoupon(code: string, userId: string) {
 // ==================== ADMIN QUERIES ====================
 
 export async function getAllCoupons(): Promise<CouponItem[]> {
+  if (!db) return [];
   try {
     const snap = await getDocs(collection(db, 'coupons'));
-    return snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-  } catch {
+    return snap.docs.map(d => parseCouponDoc(d.id, d.data(), d.id));
+  } catch (err) {
+    console.warn('getAllCoupons error:', err);
     return [];
   }
 }
 
+export function listenToCoupons(callback: (coupons: CouponItem[]) => void): () => void {
+  if (!db) return () => { };
+  return onSnapshot(
+    collection(db, 'coupons'),
+    (snap) => {
+      const list = snap.docs.map(d => parseCouponDoc(d.id, d.data(), d.id));
+      callback(list);
+    },
+    (err) => {
+      console.warn('listenToCoupons error:', err);
+    }
+  );
+}
+
 export async function createCoupon(coupon: Omit<CouponItem, 'id' | 'usedCount'>) {
-  const clean = {
-    ...coupon,
+  if (!db) throw new Error('Database not initialized');
+  const clean: any = {
     code: coupon.code.trim().toUpperCase(),
+    plan: coupon.plan || 'all',
     usedCount: 0,
     isActive: true,
     createdAt: new Date().toISOString(),
+    redeemedUsers: [],
   };
+
+  if (coupon.isFree) {
+    clean.isFree = true;
+    clean.type = 'free';
+  } else if (coupon.discountAmount !== undefined && !isNaN(Number(coupon.discountAmount)) && Number(coupon.discountAmount) > 0) {
+    clean.isFree = false;
+    clean.type = 'flat';
+    clean.discountAmount = Number(coupon.discountAmount);
+  } else if (coupon.discountPercent !== undefined && !isNaN(Number(coupon.discountPercent)) && Number(coupon.discountPercent) > 0) {
+    clean.isFree = false;
+    clean.type = 'percent';
+    clean.discountPercent = Number(coupon.discountPercent);
+  } else {
+    clean.isFree = true;
+    clean.type = 'free';
+  }
+
+  if (coupon.maxUses !== undefined && !isNaN(Number(coupon.maxUses)) && Number(coupon.maxUses) > 0) {
+    clean.maxUses = Number(coupon.maxUses);
+  }
+  if (coupon.expiresAt) {
+    clean.expiresAt = coupon.expiresAt;
+  }
+
   const docRef = await addDoc(collection(db, 'coupons'), clean);
   return docRef.id;
 }
 
 export async function toggleCouponStatus(couponId: string, isActive: boolean) {
+  if (!db) return;
   await updateDoc(doc(db, 'coupons', couponId), { isActive });
+}
+
+export async function deleteCoupon(couponId: string) {
+  if (!db) return;
+  await deleteDoc(doc(db, 'coupons', couponId));
 }
 
 export async function getAllPaidUsers(): Promise<any[]> {
@@ -1418,3 +1611,31 @@ export async function getAllPayments(): Promise<any[]> {
     return [];
   }
 }
+
+// ==================== SUPPORT MESSAGES ====================
+
+export interface SupportMessage {
+  id?: string;
+  name: string;
+  email: string;
+  phone?: string;
+  topic?: string;
+  message: string;
+  source: 'maintenance' | 'settings';
+  userId?: string;
+  status?: 'unread' | 'read' | 'resolved';
+  createdAt?: string;
+}
+
+export async function submitSupportMessage(
+  data: Omit<SupportMessage, 'id' | 'createdAt' | 'status'>
+): Promise<string> {
+  if (!db) throw new Error('Database not initialized');
+  const docRef = await addDoc(collection(db, 'support_messages'), {
+    ...data,
+    status: 'unread',
+    createdAt: new Date().toISOString(),
+  });
+  return docRef.id;
+}
+

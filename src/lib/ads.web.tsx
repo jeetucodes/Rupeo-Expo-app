@@ -1,6 +1,4 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { useAuth } from '@/context/AuthContext';
 
 export const ADMOB_CONFIG = {
   appId: process.env.EXPO_PUBLIC_ADMOB_APP_ID || 'ca-app-pub-2106211536803561~5812952031',
@@ -10,9 +8,11 @@ export const ADMOB_CONFIG = {
 
 export async function initializeAds(): Promise<void> {}
 export function preloadTransactionSaveAd(): void {}
-export async function showTransactionSaveAd(isUserPremium: boolean = false): Promise<void> {}
+export async function showTransactionSaveAd(isUserPremium: boolean = false, onDismiss?: () => void): Promise<void> {
+  if (onDismiss) onDismiss();
+}
 
-export function HomeBannerAd({ style }: { style?: any }) {
-  // Banner ads on Web are not supported by react-native-google-mobile-ads
+export function HomeBannerAd(_props: { style?: any }) {
+  // Completely hidden on web — takes 0 space
   return null;
 }

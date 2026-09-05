@@ -16,6 +16,7 @@ import {
   Animated,
   Easing,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -24,6 +25,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '@/context/AuthContext';
+import { checkReminderLimit, FREE_REMINDER_LIMIT } from '@/lib/limits';
 import {
   getRecurringBills,
   saveRecurringBill,
@@ -696,7 +698,7 @@ function formatDateDisplay(dateStr: string) {
 
 export default function RemindersScreen() {
   const router = useRouter();
-  const { user, settings, isPremium } = useAuth();
+  const { user, settings, isPremium, appConfig } = useAuth();
   const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
   const todayStr = useMemo(() => getLocalDateString(), []);
@@ -849,6 +851,28 @@ export default function RemindersScreen() {
   };
 
   function openAddModal(type: 'monthly_date' | 'cycle_days' = 'monthly_date') {
+    const isProOff = appConfig?.showSubscriptions === false || appConfig?.showProFeatures === false;
+    const { allowed } = checkReminderLimit(isPremium, bills.length, isProOff);
+    if (!allowed) {
+      const canUpgrade = appConfig?.showSubscriptions !== false && appConfig?.showProFeatures !== false;
+      if (canUpgrade) {
+        Toast.show({
+          type: 'info',
+          text1: 'Rupeo Pro Feature 👑',
+          text2: `Free limit (${FREE_REMINDER_LIMIT}/${FREE_REMINDER_LIMIT}) reached. Unlimited reminders ke liye upgrade karein!`,
+          visibilityTime: 3500,
+        });
+        router.push('/premium');
+        return;
+      }
+      Alert.alert(
+        'Reminder Limit Reached ⚠️',
+        `Aap maximum ${FREE_REMINDER_LIMIT} reminders hi add kar sakte hain. Naya reminder add karne ke liye purana reminder delete karein.`,
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+
     setEditingBill(null);
     setBillType(type);
     if (type === 'monthly_date') {
@@ -881,6 +905,31 @@ export default function RemindersScreen() {
 
   async function handleSave() {
     if (!user?.uid) return;
+
+    if (!editingBill) {
+      const isProOff = appConfig?.showSubscriptions === false || appConfig?.showProFeatures === false;
+      const { allowed } = checkReminderLimit(isPremium, bills.length, isProOff);
+      if (!allowed) {
+        const canUpgrade = appConfig?.showSubscriptions !== false && appConfig?.showProFeatures !== false;
+        if (canUpgrade) {
+          setShowModal(false);
+          Toast.show({
+            type: 'info',
+            text1: 'Rupeo Pro Feature 👑',
+            text2: `Free limit (${FREE_REMINDER_LIMIT}/${FREE_REMINDER_LIMIT}) reached. Unlimited reminders ke liye upgrade karein!`,
+            visibilityTime: 3500,
+          });
+          router.push('/premium');
+          return;
+        }
+        Alert.alert(
+          'Reminder Limit Reached ⚠️',
+          `Aap maximum ${FREE_REMINDER_LIMIT} reminders hi add kar sakte hain. Naya reminder add karne ke liye purana reminder delete karein.`,
+          [{ text: 'OK', style: 'default' }]
+        );
+        return;
+      }
+    }
 
     if (!billTitle.trim()) {
       Toast.show({ type: 'error', text1: 'Required', text2: 'Please enter a name for the reminder' });
@@ -1199,10 +1248,37 @@ export default function RemindersScreen() {
         </TouchableOpacity>
         <View style={{ alignItems: 'center' }}>
           <Text style={styles.topTitle}>{t('bill_reminders')}</Text>
-          <Text style={styles.topSub}>{bills.length} {t('active_reminders')}</Text>
+          <Text style={styles.topSub}>
+            {bills.length} {t('active_reminders')} {isPremium || appConfig?.showSubscriptions === false || appConfig?.showProFeatures === false ? '• Unlimited' : `(${bills.length}/${FREE_REMINDER_LIMIT} Free)`}
+          </Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
+
+      {/* Free Tier Limit Reached Banner (Only shown if subscriptions are active and user is not premium) */}
+      {appConfig?.showSubscriptions !== false && appConfig?.showProFeatures !== false && !isPremium && bills.length >= FREE_REMINDER_LIMIT && (
+        <TouchableOpacity
+          style={styles.proLimitBanner}
+          onPress={() => router.push('/premium')}
+          activeOpacity={0.88}
+          accessibilityRole="button"
+          accessibilityLabel="Free limit reached. Upgrade to Rupeo Pro for unlimited reminders"
+        >
+          <View style={styles.proLimitBannerLeft}>
+            <View style={styles.proLimitCrown}>
+              <Ionicons name="sparkles" size={14} color="#D97706" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.proLimitBannerTitle}>Free Limit Reached (3/3 Reminders)</Text>
+              <Text style={styles.proLimitBannerSub}>Upgrade to Rupeo Pro for unlimited bill & EMI reminders</Text>
+            </View>
+          </View>
+          <View style={styles.proLimitBannerBtn}>
+            <Text style={styles.proLimitBannerBtnText}>Upgrade</Text>
+            <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
+      )}
 
       {/* Bill List */}
       {bills.length === 0 ? (
@@ -2561,4 +2637,59 @@ const styles = StyleSheet.create({
   payCancelText: { fontSize: 13, fontWeight: '700', color: '#64748B' },
   payConfirmBtn: { flex: 1.6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#10B981', borderRadius: 12, paddingVertical: 12 },
   payConfirmText: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
+
+  // PRO LIMIT BANNER
+  proLimitBanner: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 10,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  proLimitBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    marginRight: 8,
+  },
+  proLimitCrown: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#FDE68A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  proLimitBannerTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  proLimitBannerSub: {
+    fontSize: 10.5,
+    color: '#B45309',
+    marginTop: 1,
+  },
+  proLimitBannerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#D97706',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  proLimitBannerBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
 });

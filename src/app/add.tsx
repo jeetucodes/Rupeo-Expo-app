@@ -22,7 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { insertTransaction, getUserCategories, CategoryItem, defaultCategories } from '@/lib/database';
 import { useAuth } from '@/context/AuthContext';
-import { showTransactionSaveAd } from '@/lib/ads';
+import { showTransactionSaveAd, preloadTransactionSaveAd } from '@/lib/ads';
 import { useTranslation } from '@/lib/i18n';
 import { Ionicons } from '@expo/vector-icons';
 import CategoryIcon from '@/components/CategoryIcon';
@@ -360,6 +360,13 @@ export default function AddExpenseScreen() {
     };
   }, []);
 
+  // Preload full-screen interstitial ad early so it is ready immediately on save
+  useEffect(() => {
+    if (!isPremium) {
+      preloadTransactionSaveAd();
+    }
+  }, [isPremium]);
+
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -589,9 +596,12 @@ export default function AddExpenseScreen() {
       ]).start();
 
       successTimer.current = setTimeout(() => {
-        showTransactionSaveAd(isPremium).catch(() => {});
-        safeGoBack(router);
-      }, 1400);
+        showTransactionSaveAd(isPremium, () => {
+          safeGoBack(router);
+        }).catch(() => {
+          safeGoBack(router);
+        });
+      }, 950);
     } catch (error: any) {
       console.error('Failed to add transaction', error);
       Toast.show({ type: 'error', text1: 'Error', text2: error.message || 'Failed to save transaction' });
